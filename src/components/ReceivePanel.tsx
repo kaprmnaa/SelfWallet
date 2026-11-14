@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import type { ChainConfig } from "../lib/chains";
+import { kindOf, type ChainConfig } from "../lib/chains";
 import { CopyButton, Notice, Skeleton } from "./ui";
 
 export default function ReceivePanel({ address, chain }: { address: string; chain: ChainConfig }) {
+  const kind = kindOf(chain);
   const [qr, setQr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -38,8 +39,25 @@ export default function ReceivePanel({ address, chain }: { address: string; chai
           </div>
         </div>
         <Notice tone="info">
-          Alamat yang sama berlaku di semua jaringan EVM, tetapi aset tidak berpindah antar jaringan. Terima hanya aset
-          dari <span className="text-zinc-200">{chain.name}</span> saat jaringan ini aktif.
+          {kind === "btc" ? (
+            <>
+              Format Native SegWit ({chain.testnet ? "tb1q…" : "bc1q…"}). Alamat berganti setelah menerima dana demi
+              privasi: selalu pakai alamat yang tampil sekarang. Alamat lama tetap valid dan dananya tetap terhitung.
+              Hanya kirim <span className="text-zinc-200">{chain.symbol}</span> di jaringan{" "}
+              <span className="text-zinc-200">{chain.name}</span>.
+            </>
+          ) : kind === "sol" ? (
+            <>
+              Terima hanya SOL native di jaringan <span className="text-zinc-200">{chain.name}</span>. Token SPL belum
+              didukung di versi ini: tidak akan tampil di sini, tetapi tetap bisa diakses dengan recovery phrase yang
+              sama di wallet lain.
+            </>
+          ) : (
+            <>
+              Alamat yang sama berlaku di semua jaringan EVM, tetapi aset tidak berpindah antar jaringan. Terima hanya
+              aset dari <span className="text-zinc-200">{chain.name}</span> saat jaringan ini aktif.
+            </>
+          )}
         </Notice>
       </div>
     </div>

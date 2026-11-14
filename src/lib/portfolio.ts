@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
 import { formatEther, formatUnits } from "ethers";
-import type { ChainConfig } from "./chains";
+import { kindOf, type ChainConfig } from "./chains";
 import { withProvider } from "./rpc";
 import { tokenBalance, type TokenInfo } from "./tokens";
 import { nativePrices, tokenPrices, type Price } from "./prices";
 import { useVisibleInterval } from "./visibility";
+import type { Account } from "./vault";
+import { solAccount } from "../core/derive";
+import { scanBtc } from "../chains/bitcoin/account";
+import { solBalance } from "../chains/solana/rpc";
 
 export type PortfolioRow = {
   chain: ChainConfig;
@@ -15,6 +19,8 @@ export type PortfolioRow = {
   usd: number | null;
   idr: number | null;
   error: boolean;
+  /** Pengganti jumlah, mis. "perlu recovery phrase". */
+  note?: string;
 };
 
 type State = {
@@ -29,9 +35,68 @@ export const fmtUsd = (n: number) =>
 export const fmtIdr = (n: number) =>
   new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(n);
 
+const base = (chain: ChainConfig): PortfolioRow => ({
+  chain,
+  symbol: chain.symbol,
+  name: chain.name,
+  amount: "0",
+  usd: null,
+  idr: null,
+  error: false,
+});
+
+async function rowsFor(chain: ChainConfig, account: Account, allTokens: Record<string, TokenInfo[]>): Promise<PortfolioRow[]> {
+  const kind = kindOf(chain);
+
+  if (kind === "btc") {
+    try {
+      const scan = await scanBtc(chain, account);
+      if (!scan) return [{ ...base(chain), note: "perlu recovery phrase" }];
+      return [{ ...base(chain), amount: formatUnits(scan.total, 8) }];
+    } catch {
+      return [{ ...base(chain), error: true }];
+    }
+  }
+
+  if (kind === "sol") {
+    const sol = solAccount(account);
+    if (!sol) return [{ ...base(chain), note: "perlu recovery phrase" }];
+    try {
+      return [{ ...base(chain), amount: formatUnits(await solBalance(chain, sol.address), 9) }];
+    } catch {
+      return [{ ...base(chain), error: true }];
+    }
+  }
+
+  const toks = allTokens[String(chain.chainId)] ?? [];
+  const [nat, ...tk] = await Promise.allSettled([
+    withProvider(chain, (p) => p.getBalance(account.address)),
+    ...toks.map((t) => tokenBalance(chain, t, account.address)),
+  ]);
+  const rows: PortfolioRow[] = [
+    {
+      ...base(chain),
+      amount: nat.status === "fulfilled" ? formatEther(nat.value) : "0",
+      error: nat.status === "rejected",
+    },
+  ];
+  toks.forEach((t, i) => {
+    const r = tk[i];
+    rows.push({
+      ...base(chain),
+      symbol: t.symbol,
+      name: t.name,
+      address: t.address,
+      amount: r.status === "fulfilled" ? formatUnits(r.value, t.decimals) : "0",
+      error: r.status === "rejected",
+    });
+  });
+  return rows;
+}
+
 /** Saldo semua jaringan (sesuai mode testnet/mainnet) + nilai uang di mainnet. */
 export function usePortfolio(
-  address: string,
+  account: Account,
   testMode: boolean,
   allTokens: Record<string, TokenInfo[]>,
   allChains: ChainConfig[],
@@ -46,41 +111,7 @@ export function usePortfolio(
 
     (async () => {
       const chains = allChains.filter((c) => c.testnet === testMode);
-      const perChain = await Promise.all(
-        chains.map(async (chain): Promise<PortfolioRow[]> => {
-          const toks = allTokens[String(chain.chainId)] ?? [];
-          const [nat, ...tk] = await Promise.allSettled([
-            withProvider(chain, (p) => p.getBalance(address)),
-            ...toks.map((t) => tokenBalance(chain, t, address)),
-          ]);
-          const rows: PortfolioRow[] = [
-            {
-              chain,
-              symbol: chain.symbol,
-              name: chain.name,
-              amount: nat.status === "fulfilled" ? formatEther(nat.value) : "0",
-              usd: null,
-              idr: null,
-              error: nat.status === "rejected",
-            },
-          ];
-          toks.forEach((t, i) => {
-            const r = tk[i];
-            rows.push({
-              chain,
-              symbol: t.symbol,
-              name: t.name,
-              address: t.address,
-              amount: r.status === "fulfilled" ? formatUnits(r.value, t.decimals) : "0",
-              usd: null,
-              idr: null,
-              error: r.status === "rejected",
-            });
-          });
-          return rows;
-        }),
-      );
-      let rows = perChain.flat();
+      let rows = (await Promise.all(chains.map((c) => rowsFor(c, account, allTokens)))).flat();
       let priceError = false;
 
       if (!testMode) {
@@ -115,7 +146,7 @@ export function usePortfolio(
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address, testMode, tokensKey, allChains, tick]);
+  }, [account, testMode, tokensKey, allChains, tick]);
 
   useVisibleInterval(() => setTick((t) => t + 1), 60_000);
 

@@ -1,7 +1,7 @@
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { formatEther, formatUnits } from "ethers";
 import { ArrowSquareOut } from "@phosphor-icons/react";
-import type { ChainConfig } from "../lib/chains";
+import { explorerTx, type ChainConfig } from "../lib/chains";
 import type { Account } from "../lib/vault";
 import { useSettings } from "../context/SettingsContext";
 import { feeWei, maxNativeSend, prepare, signAndSend, type Prepared } from "../lib/tx";
@@ -13,7 +13,7 @@ const STALE_MS = 90_000;
 
 function Row({ k, children }: { k: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-[7rem_1fr] gap-3 py-3 text-sm">
+    <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3 py-3 text-sm">
       <dt className="text-zinc-500">{k}</dt>
       <dd className="min-w-0 break-words text-zinc-100">{children}</dd>
     </div>
@@ -161,7 +161,7 @@ export default function SendPanel({
           </div>
           {chain.explorer && (
 <a
-            href={`${chain.explorer}/tx/${lastHash}`}
+            href={explorerTx(chain, lastHash) ?? "#"}
             target="_blank"
             rel="noopener noreferrer"
             className="flex shrink-0 items-center gap-1.5 text-xs text-accent hover:underline"

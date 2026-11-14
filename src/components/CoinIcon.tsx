@@ -15,7 +15,8 @@ function hue(s: string) {
 }
 
 function LocalCoinIcon({ symbol, size = 32 }: { symbol: string; size?: number }) {
-  const key = symbol.toUpperCase() === "TBNB" ? "BNB" : symbol.toUpperCase();
+  const up = symbol.toUpperCase();
+  const key = up === "TBNB" ? "BNB" : up === "TBTC" ? "BTC" : up;
   const common = { width: size, height: size, viewBox: "0 0 32 32", role: "img", "aria-label": symbol } as const;
 
   switch (key) {
@@ -37,6 +38,26 @@ function LocalCoinIcon({ symbol, size = 32 }: { symbol: string; size?: number })
             <polygon points="16,20.5 19,23.5 16,26.5 13,23.5" />
             <polygon points="5.5,16 8.5,13 11.5,16 8.5,19" />
             <polygon points="20.5,16 23.5,13 26.5,16 23.5,19" />
+          </g>
+        </svg>
+      );
+    case "BTC":
+      return (
+        <svg {...common}>
+          <circle cx="16" cy="16" r="16" fill="#4a3418" />
+          <text x="16" y="21.5" textAnchor="middle" fontSize="15" fontWeight="700" fill="#f0b45a" fontFamily="ui-sans-serif, system-ui, sans-serif">
+            ₿
+          </text>
+        </svg>
+      );
+    case "SOL":
+      return (
+        <svg {...common}>
+          <circle cx="16" cy="16" r="16" fill="#1d2b2a" />
+          <g fill="#7fd6b5">
+            <polygon points="9.5,10 24,10 22,13.2 7.5,13.2" />
+            <polygon points="7.5,14.4 22,14.4 24,17.6 9.5,17.6" />
+            <polygon points="9.5,18.8 24,18.8 22,22 7.5,22" />
           </g>
         </svg>
       );
@@ -81,7 +102,8 @@ function LocalCoinIcon({ symbol, size = 32 }: { symbol: string; size?: number })
 
 /** Simbol token berasal dari contract (tidak tepercaya): hanya huruf/angka pendek yang diteruskan. */
 function iconName(symbol: string): string | null {
-  const n = symbol.toUpperCase() === "TBNB" ? "bnb" : symbol.toLowerCase();
+  const up = symbol.toUpperCase();
+  const n = up === "TBNB" ? "bnb" : up === "TBTC" ? "btc" : symbol.toLowerCase();
   return /^[a-z0-9]{1,12}$/.test(n) ? n : null;
 }
 

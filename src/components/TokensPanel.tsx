@@ -164,7 +164,7 @@ export default function TokensPanel({ chain, owner }: { chain: ChainConfig; owne
 
       {found && (
         <div className="grid gap-4 border-t border-white/[0.06] pt-6">
-          <dl className="grid grid-cols-[6rem_1fr] gap-y-2 text-sm">
+          <dl className="grid grid-cols-[6rem_minmax(0,1fr)] gap-y-2 text-sm">
             <dt className="text-zinc-500">Nama</dt>
             <dd className="text-zinc-100">{found.name}</dd>
             <dt className="text-zinc-500">Simbol</dt>

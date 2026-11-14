@@ -79,8 +79,9 @@ export default function Onboarding() {
             transition={{ ...spring, delay: 0.08 }}
             className="mt-6 max-w-[65ch] text-base leading-relaxed text-zinc-400"
           >
-            Dompet self-custody multi-wallet untuk Ethereum, BNB Smart Chain, Polygon, Base, dan jaringan kustom.
-            Server tidak pernah menerima recovery phrase, private key, maupun password.
+            Dompet self-custody multi-wallet untuk Bitcoin, Solana, Ethereum, BNB Smart Chain, Polygon, Base, dan
+            jaringan EVM kustom. Satu recovery phrase untuk semuanya. Server tidak pernah menerima recovery phrase,
+            private key, maupun password.
           </m.p>
           <m.ul
             initial="hidden"

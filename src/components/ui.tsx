@@ -58,7 +58,7 @@ export function Field({
   children: ReactNode;
 }) {
   return (
-    <label className="grid gap-2">
+    <label className="grid min-w-0 gap-2">
       <span className="text-xs font-medium tracking-wide text-zinc-400">{label}</span>
       {children}
       {error ? (
@@ -279,5 +279,15 @@ export function PopoverScrim({ onClick }: { onClick: () => void }) {
       onClick={onClick}
       aria-hidden="true"
     />
+  );
+}
+
+/** Baris label/nilai untuk jendela tinjau transaksi. Kolom nilai boleh menyusut (alamat panjang). */
+export function DetailRow({ k, children }: { k: string; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3 py-3 text-sm">
+      <dt className="text-zinc-500">{k}</dt>
+      <dd className="min-w-0 break-words text-zinc-100">{children}</dd>
+    </div>
   );
 }

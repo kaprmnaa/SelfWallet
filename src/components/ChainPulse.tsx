@@ -1,6 +1,6 @@
 import { memo, useEffect, useState } from "react";
 import type { ChainConfig } from "../lib/chains";
-import { withProvider } from "../lib/rpc";
+import { getTip } from "../lib/chainOps";
 import { useVisibleInterval } from "../lib/visibility";
 import { Skeleton, StatusDot } from "./ui";
 
@@ -15,7 +15,7 @@ function ChainPulseBase({ chain }: { chain: ChainConfig }) {
 
   useEffect(() => {
     let alive = true;
-    withProvider(chain, (p) => p.getBlockNumber())
+    getTip(chain)
       .then((n) => alive && setBlock(n))
       .catch(() => alive && setBlock("err"));
     return () => {
@@ -33,7 +33,7 @@ function ChainPulseBase({ chain }: { chain: ChainConfig }) {
       ) : block === "err" ? (
         <span>RPC offline</span>
       ) : (
-        <span>Blok {block.toLocaleString("id-ID")}</span>
+        <span>{chain.kind === "sol" ? "Slot" : "Blok"} {block.toLocaleString("id-ID")}</span>
       )}
     </div>
   );

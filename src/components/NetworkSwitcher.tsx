@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useRef, useState, type KeyboardEvent } from 
 import { AnimatePresence, m } from "framer-motion";
 import { CaretDown, Check, Plus } from "@phosphor-icons/react";
 import { useSettings } from "../context/SettingsContext";
+import { chainTag } from "../lib/chains";
 import CoinIcon from "./CoinIcon";
 import { Button, Modal, PopoverScrim, popoverCls, spring } from "./ui";
 
@@ -159,7 +160,7 @@ export default function NetworkSwitcher() {
                             )}
                           </span>
                           <span className="font-mono text-xs text-zinc-600">
-                            chain {c.chainId} · {c.symbol}
+                            {chainTag(c)} · {c.symbol}
                           </span>
                         </span>
                         {active && <Check className="relative shrink-0 text-accent" />}

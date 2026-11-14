@@ -10,6 +10,23 @@ html {
   background: #09090b;
 }
 
+/* Jaring pengaman: tidak pernah ada scroll horizontal di halaman. */
+html,
+body {
+  overflow-x: clip;
+}
+
+/*
+ * Penyebab scroll horizontal di HP: kolom grid bawaan (auto) tidak mau lebih sempit dari isinya,
+ * jadi teks panjang (hash, alamat) yang di-"truncate" tetap melebarkan seluruh halaman.
+ * Dengan minmax(0, 1fr) kolom boleh menyusut. Utilitas grid-cols-* tetap menimpa aturan ini.
+ */
+@layer components {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 body {
   @apply bg-zinc-950 font-sans text-zinc-400 antialiased;
   margin: 0;

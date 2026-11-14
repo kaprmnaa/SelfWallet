@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { m } from "framer-motion";
-import { CHAINS } from "../lib/chains";
+import { CHAINS, chainTag } from "../lib/chains";
 
 const items = CHAINS.filter((c) => !c.testnet);
 
@@ -10,7 +10,7 @@ function Row() {
       {items.map((c) => (
         <span key={c.chainId} className="flex items-center gap-3 whitespace-nowrap pr-14 font-mono text-xs text-zinc-500">
           <span className="text-zinc-300">{c.name}</span>
-          <span>chain {c.chainId}</span>
+          <span>{chainTag(c)}</span>
           <span>{c.symbol}</span>
         </span>
       ))}

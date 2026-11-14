@@ -1,6 +1,6 @@
 import { m } from "framer-motion";
 import { ArrowSquareOut, ClockCounterClockwise } from "@phosphor-icons/react";
-import type { ChainConfig } from "../lib/chains";
+import { explorerTx, type ChainConfig } from "../lib/chains";
 import { useSettings } from "../context/SettingsContext";
 import { shortAddr, timeAgo, trimAmount } from "../lib/format";
 import CoinIcon from "./CoinIcon";
@@ -61,7 +61,7 @@ export default function HistoryPanel({ chain, address }: { chain: ChainConfig; a
           </div>
           {chain.explorer && (
 <a
-            href={`${chain.explorer}/tx/${h.hash}`}
+            href={explorerTx(chain, h.hash) ?? "#"}
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Buka di explorer"

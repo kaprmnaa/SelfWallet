@@ -81,7 +81,9 @@ export default function PortfolioPanel({ pf, testMode }: { pf: Portfolio; testMo
                       </div>
                     </div>
                     <div className="text-right">
-                      {r.error ? (
+                      {r.note ? (
+                        <p className="max-w-[10rem] text-xs text-zinc-500">{r.note}</p>
+                      ) : r.error ? (
                         <p className="text-xs text-rose-400">gagal dimuat</p>
                       ) : (
                         <>

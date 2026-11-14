@@ -42,6 +42,24 @@ Artinya CSP tidak lagi membatasi tujuan permintaan jaringan; pertahanan utama te
 Jika Anda tidak memakai jaringan kustom, ketatkan dengan mengganti `https:` memakai daftar host RPC di `src/lib/chains.ts`
 (ditambah `https://api.coingecko.com` untuk harga). Jangan menaruh API key rahasia di source publik.
 
+## Bitcoin dan Solana
+Satu recovery phrase menurunkan akun untuk semua jaringan (tanpa passphrase BIP-39 opsional):
+
+| Jaringan | Standar | Path akun pertama | Alamat |
+|---|---|---|---|
+| EVM | BIP-44, secp256k1 | m/44'/60'/0'/0/0 | 0x… |
+| Bitcoin | BIP-84 Native SegWit | m/84'/0'/0' (testnet: m/84'/1'/0') | bc1q… / tb1q… |
+| Solana | SLIP-0010, Ed25519 | m/44'/501'/0'/0' | Base58 |
+
+- Wallet yang diimpor lewat **private key** tidak punya recovery phrase, jadi Bitcoin dan Solana tidak tersedia untuk wallet itu.
+- Bitcoin: data lewat REST Esplora (mempool.space, blockstream.info). Pemindaian alamat terima + kembalian dengan gap limit 10
+  (`src/chains/bitcoin/account.ts`), hanya UTXO terkonfirmasi yang dibelanjakan, kembalian di bawah dust (546 sat) dilebur ke fee,
+  RBF aktif. Testnet = **testnet4** (`https://mempool.space/testnet4/api`).
+- Solana: JSON-RPC langsung (tanpa SDK besar), transfer SOL native lewat System Program; identitas cluster diverifikasi lewat
+  genesis hash sebelum mengirim. Token SPL belum didukung.
+- Privasi: setiap alamat yang dipindai dikirim ke penyedia data (mempool.space / RPC Solana), yang dapat mengaitkannya dengan IP Anda.
+- RPC publik Solana dibatasi laju dan tidak menjamin ketersediaan: ganti `rpcUrls` di `src/lib/chains.ts` dengan provider Anda.
+
 ## Fitur
 - Multi wallet: banyak wallet bernama ("Main A", "Main B", dst, bisa diubah). Setiap wallet punya keystore dan password sendiri;
   wallet yang sudah dibuka di sesi ini bisa berpindah instan lewat pemilih wallet di header. Kunci semua sekaligus dengan tombol gembok.
