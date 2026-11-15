@@ -42,6 +42,30 @@ Artinya CSP tidak lagi membatasi tujuan permintaan jaringan; pertahanan utama te
 Jika Anda tidak memakai jaringan kustom, ketatkan dengan mengganti `https:` memakai daftar host RPC di `src/lib/chains.ts`
 (ditambah `https://api.coingecko.com` untuk harga). Jangan menaruh API key rahasia di source publik.
 
+## Swap (blueprint v2.0)
+Tab **Swap** (jaringan EVM mainnet: Ethereum, BNB Smart Chain, Polygon, Base). Same-chain dan cross-chain EVM lewat **LI.FI**.
+
+Alur: pilih aset, jaringan, dan token tujuan, lalu slippage (0,5% / 1% / 3%) -> quote -> layar tinjau -> (approval jika perlu) -> tanda tangan lokal -> pemantauan status.
+
+- **Layar tinjau** menampilkan: bayar/terima (jaringan, penanda native vs token), minimum diterima, kurs, selisih nilai, gas jaringan asal,
+  biaya provider (dipisah dari gas; yang sudah termasuk output diberi keterangan), rute, estimasi waktu, approval, kontrak tujuan, dan hitung mundur quote.
+- **Validasi lokal sebelum menandatangani** (`src/swap/quote/validate.ts`): jaringan, token, jumlah, pengirim, penerima (harus alamat Anda), slippage,
+  chain ID transaksi, kontrak tujuan dan spender approval (harus ada di daftar kontrak yang diizinkan), nilai native, calldata memuat alamat Anda,
+  quote belum kedaluwarsa, penolakan jika kehilangan nilai >50%. Approval selalu **jumlah persis**, bukan unlimited.
+- **Status** (`src/swap/state-machine/`): source_submitted -> source_confirmed -> bridging -> completed / refunded / failed / recovery_required.
+  Source terkonfirmasi bukan "selesai" untuk lintas chain. Disimpan di browser (non-rahasia), dipantau idempoten, tahan muat ulang.
+- **Provider** diabstraksi (`src/swap/providers/provider.ts`); baru LI.FI yang diimplementasikan.
+
+### Batasan yang disengaja (baca sebelum memakai)
+- **Tidak ada testnet.** LI.FI tidak mendukung testnet. Menguji swap berarti memakai dana sungguhan: mulai dengan nominal kecil di Base/Polygon.
+- **Calldata tidak di-decode penuh.** Validasi memeriksa kontrak tujuan, nilai, chain, dan keberadaan alamat Anda di calldata. Itu mengurangi, bukan menghilangkan, risiko.
+- **Daftar kontrak yang diizinkan** hanya berisi LI.FI Diamond (`0x1231DEB6…4EaE`, dari dokumentasi LI.FI). Rute yang memakai kontrak lain ditolak (gagal aman).
+- **Belum ada:** swap native BTC (THORChain), swap dari/ke Solana, 1inch (butuh API key + proxy backend), gas sponsorship/intent/gasless.
+- Tanpa API key LI.FI, permintaan dibatasi laju oleh penyedia.
+
+## Tes
+`npm test` menjalankan uji logika murni (pemilihan UTXO Bitcoin, validasi quote swap, mesin status) tanpa jaringan.
+
 ## Bitcoin dan Solana
 Satu recovery phrase menurunkan akun untuk semua jaringan (tanpa passphrase BIP-39 opsional):
 

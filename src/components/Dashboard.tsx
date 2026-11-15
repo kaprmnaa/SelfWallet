@@ -11,6 +11,7 @@ import { trimAmount } from "../lib/format";
 import { fmtIdr, fmtUsd, usePortfolio } from "../lib/portfolio";
 import { clearWallets, loadWallets } from "../lib/vaultStore";
 import { SOL_PATH, btcAccountPath, btcNet } from "../core/derive";
+import { useSwapTracker } from "../swap/tracker";
 import type { Account } from "../lib/vault";
 import ChainPulse from "./ChainPulse";
 import NetworkSwitcher from "./NetworkSwitcher";
@@ -20,16 +21,18 @@ import CoinIcon from "./CoinIcon";
 import { Button, CopyButton, Notice, Skeleton, Tabs, spring } from "./ui";
 
 const SendPanel = lazy(() => import("./SendPanel"));
+const SwapPanel = lazy(() => import("./SwapPanel"));
 const BtcSendPanel = lazy(() => import("./BtcSendPanel"));
 const SolSendPanel = lazy(() => import("./SolSendPanel"));
 const ReceivePanel = lazy(() => import("./ReceivePanel"));
 const TokensPanel = lazy(() => import("./TokensPanel"));
 const HistoryPanel = lazy(() => import("./HistoryPanel"));
 
-type Tab = "portofolio" | "kirim" | "terima" | "token" | "riwayat";
+type Tab = "portofolio" | "kirim" | "swap" | "terima" | "token" | "riwayat";
 const TABS: { key: Tab; label: string }[] = [
-  { key: "portofolio", label: "Portofolio" },
+  { key: "portofolio", label: "Aset" },
   { key: "kirim", label: "Kirim" },
+  { key: "swap", label: "Swap" },
   { key: "terima", label: "Terima" },
   { key: "token", label: "Token" },
   { key: "riwayat", label: "Riwayat" },
@@ -48,13 +51,19 @@ export default function Dashboard({ account }: { account: Account }) {
   const { lock, name: walletName } = useWallet();
   const { chain, chains, testMode, allTokens, history, setHistoryStatus } = useSettings();
   const kind = kindOf(chain);
-  const tabs = kind === "evm" ? TABS : TABS.filter((t) => t.key !== "token");
+  const tabs = kind === "evm" ? TABS : TABS.filter((t) => t.key !== "token" && t.key !== "swap");
   const [tab, setTab] = useState<Tab>("portofolio");
   const activeTab = tabs.some((t) => t.key === tab) ? tab : "portofolio";
 
   const data = useChainData(chain, account);
   const pf = usePortfolio(account, testMode, allTokens, chains);
   const { address, owner } = data;
+
+  // Pantau swap yang sedang berjalan (tahan restart: status tersimpan di browser).
+  useSwapTracker(chains, () => {
+    data.refresh();
+    pf.refresh();
+  });
 
   // Pantau transaksi pending di semua jaringan (berhenti saat tab tersembunyi).
   useVisibleInterval(async () => {
@@ -204,6 +213,7 @@ export default function Dashboard({ account }: { account: Account }) {
                     ) : (
                       <SendPanel account={account} chain={chain} address={address} onSent={afterSend} />
                     ))}
+                  {activeTab === "swap" && <SwapPanel account={account} chain={chain} onChanged={afterSend} />}
                   {activeTab === "terima" &&
                     (data.unsupported ? (
                       <Notice>{data.unsupported}</Notice>

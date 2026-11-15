@@ -118,7 +118,7 @@ export const CHAINS: ChainConfig[] = [
     name: "Solana",
     symbol: "SOL",
     testnet: false,
-    rpcUrls: ["https://api.mainnet.solana.com"],
+    rpcUrls: ["https://api.mainnet-beta.solana.com"],
     explorer: "https://explorer.solana.com",
   },
 ];
