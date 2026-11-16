@@ -22,6 +22,7 @@ import { Button, CopyButton, Notice, Skeleton, Tabs, spring } from "./ui";
 
 const SendPanel = lazy(() => import("./SendPanel"));
 const SwapPanel = lazy(() => import("./SwapPanel"));
+const EndpointModal = lazy(() => import("./EndpointModal"));
 const BtcSendPanel = lazy(() => import("./BtcSendPanel"));
 const SolSendPanel = lazy(() => import("./SolSendPanel"));
 const ReceivePanel = lazy(() => import("./ReceivePanel"));
@@ -53,6 +54,12 @@ export default function Dashboard({ account }: { account: Account }) {
   const kind = kindOf(chain);
   const tabs = kind === "evm" ? TABS : TABS.filter((t) => t.key !== "token" && t.key !== "swap");
   const [tab, setTab] = useState<Tab>("portofolio");
+  const [endpointOpen, setEndpointOpen] = useState(false);
+  const [endpointMounted, setEndpointMounted] = useState(false);
+  const openEndpoints = () => {
+    setEndpointMounted(true);
+    setEndpointOpen(true);
+  };
   const activeTab = tabs.some((t) => t.key === tab) ? tab : "portofolio";
 
   const data = useChainData(chain, account);
@@ -155,9 +162,16 @@ export default function Dashboard({ account }: { account: Account }) {
                 {trimAmount(data.balance, 8)}
               </m.p>
             ) : (
-              <p className="text-sm text-rose-400" role="alert">
-                {data.error}
-              </p>
+              <div className="max-w-[60ch]" role="alert">
+                <p className="break-words text-sm leading-relaxed text-rose-400">{data.error}</p>
+                <button
+                  type="button"
+                  onClick={openEndpoints}
+                  className="mt-2 text-xs text-accent hover:underline"
+                >
+                  Cek koneksi dan ubah endpoint
+                </button>
+              </div>
             )}
             <span className="flex items-center gap-2 pb-2 font-mono text-lg text-zinc-500">
               <CoinIcon symbol={chain.symbol} size={24} />
@@ -173,6 +187,7 @@ export default function Dashboard({ account }: { account: Account }) {
             </button>
           </div>
           {data.unsupported && <div className="mt-4 max-w-[60ch]"><Notice>{data.unsupported}</Notice></div>}
+          {data.note && <p className="mt-3 max-w-[60ch] text-xs leading-relaxed text-amber-300/80">{data.note}</p>}
           {data.pending && (
             <p className="mt-3 font-mono text-sm text-zinc-500">
               + {trimAmount(data.pending, 8)} {chain.symbol} menunggu konfirmasi
@@ -289,6 +304,13 @@ export default function Dashboard({ account }: { account: Account }) {
               <dt className="text-zinc-500">Cadangan data</dt>
               <dd className="font-mono text-zinc-200">{chain.rpcUrls.length} endpoint</dd>
             </dl>
+            <button
+              type="button"
+              onClick={openEndpoints}
+              className="mt-4 text-xs text-accent transition-colors duration-300 hover:underline"
+            >
+              Cek koneksi dan endpoint
+            </button>
           </div>
 
           <div className="pt-8">
@@ -305,6 +327,11 @@ export default function Dashboard({ account }: { account: Account }) {
           </div>
         </aside>
       </main>
+      {endpointMounted && (
+        <Suspense fallback={null}>
+          <EndpointModal open={endpointOpen} onClose={() => setEndpointOpen(false)} chain={chain} />
+        </Suspense>
+      )}
     </div>
   );
 }

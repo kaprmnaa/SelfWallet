@@ -118,7 +118,8 @@ export const CHAINS: ChainConfig[] = [
     name: "Solana",
     symbol: "SOL",
     testnet: false,
-    rpcUrls: ["https://api.mainnet-beta.solana.com"],
+    // api.mainnet-beta.solana.com sering menjawab 403 untuk lalu lintas dari browser, jadi dipasang terakhir.
+    rpcUrls: ["https://solana-rpc.publicnode.com", "https://api.mainnet.solana.com", "https://api.mainnet-beta.solana.com"],
     explorer: "https://explorer.solana.com",
   },
 ];

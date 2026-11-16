@@ -1,43 +1,69 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatEther, formatUnits } from "ethers";
 import { kindOf, type ChainConfig } from "./chains";
 import { withProvider } from "./rpc";
 import { useVisibleInterval } from "./visibility";
+import { errMsg } from "./format";
+import { explainError } from "./explain";
 import type { Account } from "./vault";
-import { NEED_PHRASE, solAccount } from "../core/derive";
+import { NEED_PHRASE, btcAccountNode, btcAddressAt, btcNet, getSeed, solAccount } from "../core/derive";
 import { scanBtc } from "../chains/bitcoin/account";
 import { solBalance } from "../chains/solana/rpc";
 
-type Loaded = { address: string; owner: string; balance: string; pending: string | null };
+type Identity = { address: string; owner: string } | { unsupported: string } | { fail: string };
 
-async function load(chain: ChainConfig, account: Account, force: boolean): Promise<Loaded | { unsupported: string }> {
+/** Alamat dan identitas dihitung LOKAL (tanpa jaringan), jadi tetap tampil walau penyedia data gagal. */
+function identity(chain: ChainConfig, account: Account): Identity {
+  try {
+    const kind = kindOf(chain);
+    if (kind === "btc") {
+      const seed = getSeed(account);
+      if (!seed) return { unsupported: NEED_PHRASE };
+      const net = btcNet(chain.testnet);
+      const a = btcAddressAt(btcAccountNode(seed, net), net, 0, 0).address;
+      return { address: a, owner: a };
+    }
+    if (kind === "sol") {
+      const s = solAccount(account);
+      if (!s) return { unsupported: NEED_PHRASE };
+      return { address: s.address, owner: s.address };
+    }
+    return { address: account.address, owner: account.address };
+  } catch (e) {
+    return { fail: `Derivasi alamat gagal: ${errMsg(e)}` };
+  }
+}
+
+type Loaded = { address: string; balance: string; pending: string | null; note: string | null };
+
+async function load(chain: ChainConfig, account: Account, force: boolean, fallbackAddress: string): Promise<Loaded> {
   const kind = kindOf(chain);
   if (kind === "btc") {
     const scan = await scanBtc(chain, account, force);
-    if (!scan) return { unsupported: NEED_PHRASE };
+    if (!scan) throw new Error(NEED_PHRASE);
     return {
       address: scan.receiveAddress,
-      owner: scan.ownerKey,
       balance: formatUnits(scan.total, 8),
       pending: scan.unconfirmed > 0n ? formatUnits(scan.unconfirmed, 8) : null,
+      note: scan.stale ? "Menampilkan data terakhir yang berhasil dimuat; penyedia data sedang tidak merespons." : null,
     };
   }
   if (kind === "sol") {
-    const sol = solAccount(account);
-    if (!sol) return { unsupported: NEED_PHRASE };
-    return { address: sol.address, owner: sol.address, balance: formatUnits(await solBalance(chain, sol.address), 9), pending: null };
+    return { address: fallbackAddress, balance: formatUnits(await solBalance(chain, fallbackAddress), 9), pending: null, note: null };
   }
   const b = await withProvider(chain, (p) => p.getBalance(account.address));
-  return { address: account.address, owner: account.address, balance: formatEther(b), pending: null };
+  return { address: account.address, balance: formatEther(b), pending: null, note: null };
 }
 
-type State = { key: string; loading: boolean; data: Loaded | null; unsupported: string | null; error: string | null };
+type State = { key: string; loading: boolean; data: Loaded | null; error: string | null };
 
 export type ChainData = {
   loading: boolean;
+  /** Galat pemuatan saldo, lengkap dengan penyebabnya (host, status HTTP, dst). */
   error: string | null;
   unsupported: string | null;
-  /** Alamat yang ditampilkan/dipakai untuk menerima (BTC: alamat berikutnya yang belum dipakai). */
+  note: string | null;
+  /** Alamat terima (BTC: alamat berikutnya yang belum dipakai; sebelum pemindaian: alamat indeks 0). */
   address: string;
   /** Identitas stabil wallet pada jaringan ini (kunci riwayat). */
   owner: string;
@@ -49,44 +75,47 @@ export type ChainData = {
 /** Saldo + alamat untuk jaringan aktif (EVM, Bitcoin, atau Solana). */
 export function useChainData(chain: ChainConfig, account: Account): ChainData {
   const key = `${chain.chainId}:${account.address}`;
-  const [state, setState] = useState<State>({ key, loading: true, data: null, unsupported: null, error: null });
+  const ident = useMemo(() => identity(chain, account), [chain, account]);
+  const [state, setState] = useState<State>({ key, loading: true, data: null, error: null });
   const [tick, setTick] = useState(0);
   const force = useRef(false);
+  const usable = "address" in ident;
+  const fallbackAddress = usable ? ident.address : "";
 
   useEffect(() => {
+    if (!usable) {
+      setState({ key, loading: false, data: null, error: null });
+      return;
+    }
     let alive = true;
     const f = force.current;
     force.current = false;
-    load(chain, account, f)
-      .then((r) => {
-        if (!alive) return;
-        if ("unsupported" in r) setState({ key, loading: false, data: null, unsupported: r.unsupported, error: null });
-        else setState({ key, loading: false, data: r, unsupported: null, error: null });
-      })
-      .catch(() => {
+    load(chain, account, f, fallbackAddress)
+      .then((r) => alive && setState({ key, loading: false, data: r, error: null }))
+      .catch((e) => {
         if (!alive) return;
         setState((s) => ({
           key,
           loading: false,
           data: s.key === key ? s.data : null,
-          unsupported: null,
-          error: "Saldo gagal dimuat. Penyedia data tidak merespons.",
+          error: `Saldo gagal dimuat: ${explainError(e).slice(0, 400)}`,
         }));
       });
     return () => {
       alive = false;
     };
-  }, [chain, account, key, tick]);
+  }, [chain, account, key, tick, usable, fallbackAddress]);
 
   useVisibleInterval(() => setTick((t) => t + 1), 30_000);
 
-  const cur: State = state.key === key ? state : { key, loading: true, data: null, unsupported: null, error: null };
+  const cur: State = state.key === key ? state : { key, loading: true, data: null, error: null };
   return {
     loading: cur.loading,
-    error: cur.error,
-    unsupported: cur.unsupported,
-    address: cur.data?.address ?? "",
-    owner: cur.data?.owner ?? "",
+    error: "fail" in ident ? ident.fail : cur.error,
+    unsupported: "unsupported" in ident ? ident.unsupported : null,
+    note: cur.data?.note ?? null,
+    address: cur.data?.address ?? (usable ? ident.address : ""),
+    owner: usable ? ident.owner : "",
     balance: cur.data?.balance ?? null,
     pending: cur.data?.pending ?? null,
     refresh: () => {

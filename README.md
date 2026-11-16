@@ -66,6 +66,18 @@ Alur: pilih aset, jaringan, dan token tujuan, lalu slippage (0,5% / 1% / 3%) -> 
 ## Tes
 `npm test` menjalankan uji logika murni (pemilihan UTXO Bitcoin, validasi quote swap, mesin status) tanpa jaringan.
 
+## Koneksi, endpoint, dan diagnosa
+Jika saldo atau status jaringan gagal dimuat, aplikasi menampilkan **penyebab sebenarnya** (host, status HTTP, CORS/diblokir) dan tombol
+**Cek koneksi dan ubah endpoint**: menguji setiap endpoint jaringan aktif (latensi, status), dan memungkinkan memasang endpoint kustom
+(Helius/QuickNode/Alchemy untuk Solana, server Esplora milik sendiri untuk Bitcoin, RPC pribadi untuk EVM). Endpoint kustom hanya disimpan jika lolos uji
+(chain ID / genesis hash cocok), dan diprioritaskan di atas endpoint bawaan.
+
+- Solana mainnet: `solana-rpc.publicnode.com` -> `api.mainnet.solana.com` -> `api.mainnet-beta.solana.com`. RPC publik resmi Solana sering menjawab 403
+  untuk lalu lintas dari browser dan tidak ditujukan untuk produksi; untuk pemakaian rutin gunakan endpoint berkunci milik Anda.
+- Bitcoin: semua permintaan Esplora dibatasi laju (maks. 2 serentak, jeda 150 ms, backoff pada 429, hormati Retry-After). Pemindaian dihemat
+  (cabang kembalian dilewati untuk wallet kosong), hasil di-cache 60 dtk, dan data terakhir ditampilkan (diberi catatan) saat penyedia gagal.
+  Testnet4 hanya tersedia di mempool.space; Blockstream tidak menyediakannya.
+
 ## Bitcoin dan Solana
 Satu recovery phrase menurunkan akun untuk semua jaringan (tanpa passphrase BIP-39 opsional):
 

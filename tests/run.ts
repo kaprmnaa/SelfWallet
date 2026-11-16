@@ -4,6 +4,8 @@ import { validateQuote, QuoteRejected, type Expectation } from "../src/swap/quot
 import { breakdown } from "../src/swap/fees/breakdown";
 import { transition, canTransition } from "../src/swap/state-machine/machine";
 import { LIFI_DIAMOND } from "../src/swap/registry";
+import { Lane } from "../src/lib/lane";
+import { explainError, hostOf } from "../src/lib/explain";
 import type { SwapExecution } from "../src/swap/domain/types";
 
 let pass = 0;
@@ -119,5 +121,43 @@ try { transition(b, "bridging"); ok("state: status akhir tidak bisa berubah", fa
 ok("state: source_submitted tidak boleh langsung completed", !canTransition("source_submitted", "completed"));
 ok("state: recovery_required bisa pulih ke completed", canTransition("recovery_required", "completed"));
 
-console.log(`\n${pass} lolos, ${fail} gagal`);
-process.exit(fail === 0 ? 0 : 1);
+/* ------------------------------------------------ Pembatas laju & galat */
+explainOk();
+function explainOk() {
+  ok("explain: 403 dijelaskan", /endpoint kustom/.test(explainError(new Error("x.com: HTTP 403"))));
+  ok("explain: 429 dijelaskan", /dibatasi laju/.test(explainError(new Error("x.com: HTTP 429"))));
+  ok("explain: Failed to fetch -> pesan jelas", /CORS/.test(explainError(new TypeError("Failed to fetch"))));
+  ok("explain: host dari URL", hostOf("https://mempool.space/testnet4/api") === "mempool.space");
+}
+
+async function laneTest() {
+  const lane = new Lane(2, 120);
+  let active = 0;
+  let maxActive = 0;
+  const starts: number[] = [];
+  await Promise.all(
+    Array.from({ length: 6 }, () =>
+      lane.run(async () => {
+        starts.push(Date.now());
+        active++;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((r) => setTimeout(r, 40));
+        active--;
+      }),
+    ),
+  );
+  starts.sort((a, b) => a - b);
+  const gaps = starts.slice(1).map((t, i) => t - starts[i]);
+  ok("lane: maksimal 2 permintaan serentak", maxActive <= 2);
+  ok("lane: jeda antar permintaan >= ~120 ms", gaps.every((g) => g >= 100));
+  const t0 = Date.now();
+  const l2 = new Lane(1, 10);
+  l2.pause(200);
+  await l2.run(async () => {});
+  ok("lane: pause() menahan permintaan berikutnya", Date.now() - t0 >= 180);
+}
+
+laneTest().then(() => {
+  console.log(`\n${pass} lolos, ${fail} gagal`);
+  process.exit(fail === 0 ? 0 : 1);
+});

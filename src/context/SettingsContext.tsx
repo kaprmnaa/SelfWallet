@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { CHAINS, type ChainConfig } from "../lib/chains";
-import { sanitizeStored } from "../lib/customChains";
+import { parseRpcUrl, sanitizeStored } from "../lib/customChains";
 import type { TokenInfo } from "../lib/tokens";
 import { load, save } from "../lib/storage";
 
@@ -26,6 +26,9 @@ type Ctx = {
   chains: ChainConfig[]; // bawaan + kustom
   addCustomChain: (c: ChainConfig) => void;
   removeCustomChain: (chainId: number) => void;
+  /** Endpoint RPC/data pilihan pengguna per jaringan (diprioritaskan di atas bawaan). */
+  endpoints: Record<string, string>;
+  setEndpoint: (chainId: number, url: string | null) => void;
   tokens: TokenInfo[]; // token pada chain aktif
   allTokens: Record<string, TokenInfo[]>; // semua chain (untuk portofolio)
   addToken: (t: TokenInfo) => void;
@@ -48,7 +51,26 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         return true;
       });
   });
-  const chains = useMemo(() => [...CHAINS, ...customChains], [customChains]);
+  const [endpoints, setEndpoints] = useState<Record<string, string>>(() => {
+    const raw = load<Record<string, unknown>>("endpoints", {});
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(raw ?? {})) {
+      try {
+        if (/^\d+$/.test(k) && typeof v === "string") out[k] = parseRpcUrl(v).replace(/\/+$/, "") || v;
+      } catch {
+        /* abaikan entri rusak */
+      }
+    }
+    return out;
+  });
+  const chains = useMemo(
+    () =>
+      [...CHAINS, ...customChains].map((c) => {
+        const u = endpoints[String(c.chainId)];
+        return u ? { ...c, rpcUrls: [u, ...c.rpcUrls.filter((x) => x !== u)] } : c;
+      }),
+    [customChains, endpoints],
+  );
   const [prefs, setPrefs] = useState<Prefs>(() => {
     const p = load<Prefs>("prefs", DEFAULT_PREFS);
     return [...CHAINS, ...customChains].some((c) => c.chainId === p.chainId) ? p : DEFAULT_PREFS;
@@ -60,6 +82,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   useEffect(() => save("tokens", tokenMap), [tokenMap]);
   useEffect(() => save("history", history), [history]);
   useEffect(() => save("chains", customChains), [customChains]);
+  useEffect(() => save("endpoints", endpoints), [endpoints]);
 
   const chain = chains.find((c) => c.chainId === prefs.chainId) ?? CHAINS[0];
 
@@ -84,6 +107,17 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       return rest;
     });
     setPrefs((p) => (p.chainId === chainId ? DEFAULT_PREFS : p));
+  }, []);
+
+  const setEndpoint = useCallback((chainId: number, url: string | null) => {
+    setEndpoints((m) => {
+      const k = String(chainId);
+      if (url === null) {
+        const { [k]: _gone, ...rest } = m;
+        return rest;
+      }
+      return { ...m, [k]: url };
+    });
   }, []);
 
   const tokens = useMemo(() => tokenMap[String(chain.chainId)] ?? [], [tokenMap, chain.chainId]);
@@ -123,6 +157,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       chains,
       addCustomChain,
       removeCustomChain,
+      endpoints,
+      setEndpoint,
       tokens,
       allTokens: tokenMap,
       addToken,
@@ -131,7 +167,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       addHistory,
       setHistoryStatus,
     }),
-    [chain, prefs.testMode, setChainId, setTestMode, chains, addCustomChain, removeCustomChain, tokens, tokenMap, addToken, removeToken, history, addHistory, setHistoryStatus],
+    [chain, prefs.testMode, setChainId, setTestMode, chains, addCustomChain, removeCustomChain, endpoints, setEndpoint, tokens, tokenMap, addToken, removeToken, history, addHistory, setHistoryStatus],
   );
   return <SettingsCtx.Provider value={value}>{children}</SettingsCtx.Provider>;
 }

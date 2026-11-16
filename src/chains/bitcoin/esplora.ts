@@ -1,17 +1,30 @@
 import type { ChainConfig } from "../../lib/chains";
+import { Lane } from "../../lib/lane";
+import { hostOf } from "../../lib/explain";
 
 // Klien REST Esplora (mempool.space / blockstream.info). Catatan privasi: setiap alamat yang
 // dipindai dikirim ke penyedia data ini, sehingga penyedia dapat mengaitkan alamat Anda dan IP Anda.
+// Catatan laju: API publik membatasi permintaan (mempool.space sekitar 10/detik, jawaban 429 dan bisa
+// memblokir IP yang terus melanggar). Karena itu semua permintaan lewat pembatas (Lane) per penyedia.
 
-class HttpErr extends Error {
+export class HttpErr extends Error {
   status: number;
-  constructor(status: number, body: string) {
-    super(`Data Bitcoin: HTTP ${status}${body ? ` (${body.slice(0, 120)})` : ""}`);
+  constructor(status: number, body: string, host: string) {
+    super(`${host}: HTTP ${status}${body ? ` (${body.slice(0, 100)})` : ""}`);
     this.status = status;
   }
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const lanes = new Map<string, Lane>();
+const laneFor = (base: string) => {
+  let l = lanes.get(base);
+  if (!l) {
+    l = new Lane(2, 150); // maks. 2 serentak, jeda 150 ms = sekitar 6 permintaan/detik
+    lanes.set(base, l);
+  }
+  return l;
+};
 
 async function once(url: string, init: RequestInit): Promise<Response> {
   const ctl = new AbortController();
@@ -24,26 +37,37 @@ async function once(url: string, init: RequestInit): Promise<Response> {
 }
 
 async function req(chain: ChainConfig, path: string, init: RequestInit = {}): Promise<Response> {
-  let last: unknown;
+  const errs: string[] = [];
   for (const base of chain.rpcUrls) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+    const host = hostOf(base);
+    const lane = laneFor(base);
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const r = await once(base + path, init);
-        if (r.status === 429 && attempt === 0) {
-          await sleep(900);
-          continue;
+        const r = await lane.run(() => once(base + path, init));
+        if (r.status === 429) {
+          const ra = Number(r.headers.get("retry-after"));
+          const wait = Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 10_000) : 1000 * 2 ** attempt;
+          lane.pause(wait);
+          if (attempt < 2) {
+            await sleep(wait);
+            continue;
+          }
+          errs.push(`${host}: HTTP 429 (dibatasi laju)`);
+          break;
         }
-        if (!r.ok) throw new HttpErr(r.status, await r.text().catch(() => ""));
+        if (!r.ok) throw new HttpErr(r.status, await r.text().catch(() => ""), host);
         return r;
       } catch (e) {
-        last = e;
         // Kesalahan permintaan (4xx selain 429) tidak akan berubah di penyedia lain.
-        if (e instanceof HttpErr && e.status >= 400 && e.status < 500 && e.status !== 429) throw e;
+        if (e instanceof HttpErr && e.status >= 400 && e.status < 500) throw e;
+        if (e instanceof HttpErr) errs.push(e.message);
+        else if ((e as { name?: string }).name === "AbortError") errs.push(`${host}: tidak merespons (timeout)`);
+        else errs.push(`${host}: tidak bisa dihubungi (jaringan, CORS, atau diblokir)`);
         break;
       }
     }
   }
-  throw last ?? new Error("Data Bitcoin tidak tersedia.");
+  throw new Error(errs.join(" | ") || "Data Bitcoin tidak tersedia.");
 }
 
 type Stats = { funded_txo_count: number; funded_txo_sum: number; spent_txo_sum: number; tx_count: number };

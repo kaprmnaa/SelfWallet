@@ -35,6 +35,8 @@ export type BtcScan = {
   unconfirmed: bigint;
   total: bigint;
   scannedAt: number;
+  /** true = data lama (penyedia sedang gagal); hanya untuk tampilan, tidak pernah dipakai untuk membelanjakan. */
+  stale?: boolean;
 };
 
 async function mapLimit<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
@@ -73,7 +75,9 @@ async function scanBranch(chain: ChainConfig, node: HDKey, net: BtcNet, branch: 
 }
 
 async function doScan(chain: ChainConfig, node: HDKey, net: BtcNet, ownerKey: string): Promise<BtcScan> {
-  const [rx, ch] = await Promise.all([scanBranch(chain, node, net, 0), scanBranch(chain, node, net, 1)]);
+  const rx = await scanBranch(chain, node, net, 0);
+  // Kembalian hanya bisa ada jika alamat terima sudah pernah dipakai: lewati cabang 1 untuk wallet kosong (hemat 10 permintaan).
+  const ch = rx.lastUsed < 0 ? { lastUsed: -1, used: [] as { index: number; address: string; balance: bigint }[] } : await scanBranch(chain, node, net, 1);
   const withBalance = [
     ...rx.used.filter((u) => u.balance > 0n).map((u) => ({ ...u, branch: 0 as const })),
     ...ch.used.filter((u) => u.balance > 0n).map((u) => ({ ...u, branch: 1 as const })),
@@ -111,8 +115,10 @@ async function doScan(chain: ChainConfig, node: HDKey, net: BtcNet, ownerKey: st
   };
 }
 
-const TTL = 30_000;
+const TTL = 60_000;
+const STALE_OK_MS = 10 * 60_000;
 const cache = new Map<string, { at: number; p: Promise<BtcScan> }>();
+const lastGood = new Map<string, BtcScan>();
 
 function keyOf(chain: ChainConfig, ownerKey: string) {
   return `${chain.chainId}:${ownerKey}`;
@@ -126,12 +132,21 @@ export async function scanBtc(chain: ChainConfig, account: Account, force = fals
   const node = btcAccountNode(seed, net);
   const ownerKey = btcAddressAt(node, net, 0, 0).address;
   const key = keyOf(chain, ownerKey);
+  // Tampilan boleh memakai data lama saat penyedia gagal; pembelanjaan (force) tidak pernah.
+  const orStale = (p: Promise<BtcScan>) =>
+    force
+      ? p
+      : p.catch((e) => {
+          const g = lastGood.get(key);
+          if (g && Date.now() - g.scannedAt < STALE_OK_MS) return { ...g, stale: true };
+          throw e;
+        });
   const hit = cache.get(key);
-  if (!force && hit && Date.now() - hit.at < TTL) return hit.p;
+  if (!force && hit && Date.now() - hit.at < TTL) return orStale(hit.p);
   const p = doScan(chain, node, net, ownerKey);
   cache.set(key, { at: Date.now(), p });
-  p.catch(() => cache.delete(key));
-  return p;
+  p.then((s) => lastGood.set(key, s)).catch(() => cache.delete(key));
+  return orStale(p);
 }
 
 export function invalidateBtc(chain: ChainConfig, ownerKey: string) {

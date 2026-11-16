@@ -1,4 +1,5 @@
 import type { ChainConfig } from "../../lib/chains";
+import { hostOf } from "../../lib/explain";
 
 // Identitas cluster (genesis hash) dari dokumentasi resmi Solana. Dipakai untuk memastikan RPC
 // benar-benar melayani cluster yang dipilih sebelum mengirim.
@@ -11,8 +12,9 @@ class RpcAppError extends Error {}
 let seq = 1;
 
 export async function solRpc<T>(chain: ChainConfig, method: string, params: unknown[] = []): Promise<T> {
-  let last: unknown;
+  const errs: string[] = [];
   for (const url of chain.rpcUrls) {
+    const host = hostOf(url);
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 12_000);
     try {
@@ -23,18 +25,24 @@ export async function solRpc<T>(chain: ChainConfig, method: string, params: unkn
         signal: ctl.signal,
         referrerPolicy: "no-referrer",
       });
-      if (!r.ok) throw new Error(`RPC Solana status ${r.status}`);
+      if (!r.ok) {
+        const hint =
+          r.status === 403 ? " (penyedia menolak lalu lintas dari browser)" : r.status === 429 ? " (dibatasi laju)" : "";
+        throw new Error(`${host}: HTTP ${r.status}${hint}`);
+      }
       const j = (await r.json()) as { result?: T; error?: { message?: string } };
       if (j.error) throw new RpcAppError(j.error.message ?? "RPC Solana menolak permintaan.");
       return j.result as T;
     } catch (e) {
-      last = e;
       if (e instanceof RpcAppError) throw e; // error aplikasi: RPC lain tidak akan beda
+      if ((e as { name?: string }).name === "AbortError") errs.push(`${host}: tidak merespons (timeout)`);
+      else if (e instanceof TypeError) errs.push(`${host}: tidak bisa dihubungi (jaringan, CORS, atau diblokir)`);
+      else errs.push(e instanceof Error ? e.message : String(e));
     } finally {
       clearTimeout(t);
     }
   }
-  throw last ?? new Error("RPC Solana tidak tersedia.");
+  throw new Error(errs.join(" | ") || "RPC Solana tidak tersedia.");
 }
 
 export async function assertSolCluster(chain: ChainConfig) {
