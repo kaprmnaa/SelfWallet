@@ -311,6 +311,20 @@ export default function Dashboard({ account }: { account: Account }) {
             >
               Cek koneksi dan endpoint
             </button>
+            {kind === "btc" && (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={data.deepScan}
+                  className="text-xs text-accent transition-colors duration-300 hover:underline"
+                >
+                  Pindai mendalam (gap 20)
+                </button>
+                <p className="mt-1 max-w-[42ch] text-xs leading-relaxed text-zinc-600">
+                  Hanya jika dana dari aplikasi lain tidak muncul. Mengirim lebih banyak permintaan ke penyedia data.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="pt-8">

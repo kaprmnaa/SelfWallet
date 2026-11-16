@@ -74,8 +74,10 @@ Jika saldo atau status jaringan gagal dimuat, aplikasi menampilkan **penyebab se
 
 - Solana mainnet: `solana-rpc.publicnode.com` -> `api.mainnet.solana.com` -> `api.mainnet-beta.solana.com`. RPC publik resmi Solana sering menjawab 403
   untuk lalu lintas dari browser dan tidak ditujukan untuk produksi; untuk pemakaian rutin gunakan endpoint berkunci milik Anda.
-- Bitcoin: semua permintaan Esplora dibatasi laju (maks. 2 serentak, jeda 150 ms, backoff pada 429, hormati Retry-After). Pemindaian dihemat
-  (cabang kembalian dilewati untuk wallet kosong), hasil di-cache 60 dtk, dan data terakhir ditampilkan (diberi catatan) saat penyedia gagal.
+- Bitcoin: semua permintaan Esplora dibatasi laju (maks. 2 serentak, jeda 200 ms) dan dilindungi pemutus sirkuit: respons 429 dari
+  mempool.space tidak membawa header CORS sehingga tampil sebagai galat CORS di browser, jadi setiap kegagalan fetch memicu jeda 15/30/60/120 dtk
+  (menghormati Retry-After bila ada) agar tidak memperpanjang pembatasan. Pemindaian dihemat
+  (gap 3, petunjuk indeks tersimpan, cabang kembalian dilewati untuk wallet kosong; sekitar 8 permintaan per pemindaian), hasil di-cache 2 menit, dan data terakhir ditampilkan (diberi catatan) saat penyedia gagal.
   Testnet4 hanya tersedia di mempool.space; Blockstream tidak menyediakannya.
 
 ## Bitcoin dan Solana
@@ -88,8 +90,8 @@ Satu recovery phrase menurunkan akun untuk semua jaringan (tanpa passphrase BIP-
 | Solana | SLIP-0010, Ed25519 | m/44'/501'/0'/0' | Base58 |
 
 - Wallet yang diimpor lewat **private key** tidak punya recovery phrase, jadi Bitcoin dan Solana tidak tersedia untuk wallet itu.
-- Bitcoin: data lewat REST Esplora (mempool.space, blockstream.info). Pemindaian alamat terima + kembalian dengan gap limit 10
-  (`src/chains/bitcoin/account.ts`), hanya UTXO terkonfirmasi yang dibelanjakan, kembalian di bawah dust (546 sat) dilebur ke fee,
+- Bitcoin: data lewat REST Esplora (mempool.space, blockstream.info). Pemindaian alamat terima + kembalian: gap 3 untuk pemindaian biasa dan gap 20 untuk "Pindai mendalam"
+  (`src/chains/bitcoin/account.ts`), dengan petunjuk indeks tersimpan agar pemindaian berikutnya hemat, hanya UTXO terkonfirmasi yang dibelanjakan, kembalian di bawah dust (546 sat) dilebur ke fee,
   RBF aktif. Testnet = **testnet4** (`https://mempool.space/testnet4/api`).
 - Solana: JSON-RPC langsung (tanpa SDK besar), transfer SOL native lewat System Program; identitas cluster diverifikasi lewat
   genesis hash sebelum mengirim. Token SPL belum didukung.

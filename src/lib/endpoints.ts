@@ -16,7 +16,7 @@ export async function testEndpoint(chain: ChainConfig, url: string): Promise<num
   const t0 = performance.now();
   switch (kindOf(chain)) {
     case "btc":
-      await btcTip(probe);
+      await btcTip(probe, true); // diagnosa: abaikan jeda pemutus sirkuit
       break;
     case "sol":
       await assertSolCluster(probe); // memastikan cluster (genesis hash) cocok

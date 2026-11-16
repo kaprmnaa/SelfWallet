@@ -47,3 +47,36 @@ export class Lane {
     }
   }
 }
+
+/**
+ * Pemutus sirkuit per penyedia. Respons 429 dari API publik tidak membawa header CORS, sehingga di browser
+ * tampil sebagai galat jaringan/CORS biasa. Karena itu SETIAP kegagalan fetch dianggap kemungkinan pembatasan
+ * laju: permintaan dihentikan sementara (15 dtk, lalu 30, 60, maks. 120) agar tidak memperpanjang pemblokiran.
+ */
+export class Breaker {
+  private fails = 0;
+  private until = 0;
+
+  constructor(
+    private readonly baseMs = 15_000,
+    private readonly maxMs = 120_000,
+  ) {}
+
+  /** Sisa waktu (ms) sampai boleh mencoba lagi; 0 = boleh. */
+  remaining(now = Date.now()): number {
+    return Math.max(0, this.until - now);
+  }
+
+  /** Catat kegagalan; mengembalikan lama jeda (ms). `waitMs` dari header Retry-After bila ada. */
+  trip(now = Date.now(), waitMs?: number): number {
+    this.fails++;
+    const wait = waitMs ?? Math.min(this.maxMs, this.baseMs * 2 ** (this.fails - 1));
+    this.until = now + wait;
+    return wait;
+  }
+
+  reset() {
+    this.fails = 0;
+    this.until = 0;
+  }
+}

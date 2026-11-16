@@ -4,7 +4,8 @@ import { validateQuote, QuoteRejected, type Expectation } from "../src/swap/quot
 import { breakdown } from "../src/swap/fees/breakdown";
 import { transition, canTransition } from "../src/swap/state-machine/machine";
 import { LIFI_DIAMOND } from "../src/swap/registry";
-import { Lane } from "../src/lib/lane";
+import { Lane, Breaker } from "../src/lib/lane";
+import { missingWindow, hintCandidates } from "../src/chains/bitcoin/gap";
 import { explainError, hostOf } from "../src/lib/explain";
 import type { SwapExecution } from "../src/swap/domain/types";
 
@@ -156,6 +157,24 @@ async function laneTest() {
   await l2.run(async () => {});
   ok("lane: pause() menahan permintaan berikutnya", Date.now() - t0 >= 180);
 }
+
+/* ----------------------------------------- Gap limit & pemutus sirkuit */
+ok("gap: wallet kosong memeriksa indeks 0..2 (gap 3)", JSON.stringify(missingWindow(new Set(), -1, 3)) === "[0,1,2]");
+ok("gap: setelah indeks 0 terpakai, hanya indeks 3 yang baru", JSON.stringify(missingWindow(new Set([0, 1, 2]), 0, 3)) === "[3]");
+ok("gap: stabil bila jendela sudah diperiksa semua", missingWindow(new Set([0, 1, 2, 3]), 0, 3).length === 0);
+ok("gap: gap 20 memeriksa 20 indeks", missingWindow(new Set(), -1, 20).length === 20);
+ok("hint: tanpa petunjuk tidak ada kandidat", hintCandidates(undefined).length === 0 && hintCandidates({ last: -1, funded: [] }).length === 0);
+ok("hint: alamat berdana + beberapa alamat terakhir diperiksa ulang", JSON.stringify(hintCandidates({ last: 20, funded: [3] })) === "[3,16,17,18,19,20]");
+ok("hint: dompet kecil memeriksa ulang semuanya (faucet memakai ulang alamat lama)", JSON.stringify(hintCandidates({ last: 0, funded: [] })) === "[0]");
+
+const br = new Breaker(1000, 4000);
+ok("breaker: awalnya terbuka", br.remaining(0) === 0);
+ok("breaker: kegagalan pertama menjeda 1000 ms", br.trip(0) === 1000 && br.remaining(0) === 1000);
+ok("breaker: backoff berlipat 2000 ms", br.trip(0) === 2000);
+ok("breaker: dibatasi maksimum", (br.trip(0), br.trip(0)) === 4000);
+ok("breaker: Retry-After dari server dihormati", br.trip(0, 7000) === 7000);
+br.reset();
+ok("breaker: reset setelah sukses", br.remaining(0) === 0 && br.trip(0) === 1000);
 
 laneTest().then(() => {
   console.log(`\n${pass} lolos, ${fail} gagal`);

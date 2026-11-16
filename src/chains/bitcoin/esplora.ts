@@ -1,11 +1,13 @@
 import type { ChainConfig } from "../../lib/chains";
-import { Lane } from "../../lib/lane";
+import { Breaker, Lane } from "../../lib/lane";
 import { hostOf } from "../../lib/explain";
 
 // Klien REST Esplora (mempool.space / blockstream.info). Catatan privasi: setiap alamat yang
 // dipindai dikirim ke penyedia data ini, sehingga penyedia dapat mengaitkan alamat Anda dan IP Anda.
-// Catatan laju: API publik membatasi permintaan (mempool.space sekitar 10/detik, jawaban 429 dan bisa
-// memblokir IP yang terus melanggar). Karena itu semua permintaan lewat pembatas (Lane) per penyedia.
+//
+// Catatan laju: API publik membatasi permintaan (mempool.space sekitar 10/detik, jawaban 429, dan bisa
+// memblokir IP yang terus melanggar). Respons 429 TIDAK membawa header CORS, jadi di browser tampil sebagai
+// galat CORS. Karena itu: pembatas laju (Lane) + pemutus sirkuit (Breaker) per penyedia.
 
 export class HttpErr extends Error {
   status: number;
@@ -15,15 +17,17 @@ export class HttpErr extends Error {
   }
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const lanes = new Map<string, Lane>();
+const breakers = new Map<string, Breaker>();
 const laneFor = (base: string) => {
   let l = lanes.get(base);
-  if (!l) {
-    l = new Lane(2, 150); // maks. 2 serentak, jeda 150 ms = sekitar 6 permintaan/detik
-    lanes.set(base, l);
-  }
+  if (!l) lanes.set(base, (l = new Lane(2, 200))); // maks. 2 serentak, jeda 200 ms = maks. 5 permintaan/detik
   return l;
+};
+const breakerFor = (base: string) => {
+  let b = breakers.get(base);
+  if (!b) breakers.set(base, (b = new Breaker()));
+  return b;
 };
 
 async function once(url: string, init: RequestInit): Promise<Response> {
@@ -36,34 +40,44 @@ async function once(url: string, init: RequestInit): Promise<Response> {
   }
 }
 
-async function req(chain: ChainConfig, path: string, init: RequestInit = {}): Promise<Response> {
+/** bypass = true: untuk diagnosa koneksi (mengabaikan pemutus sirkuit). */
+async function req(chain: ChainConfig, path: string, init: RequestInit = {}, bypass = false): Promise<Response> {
   const errs: string[] = [];
   for (const base of chain.rpcUrls) {
     const host = hostOf(base);
+    const br = breakerFor(base);
+    const left = bypass ? 0 : br.remaining();
+    if (left > 0) {
+      errs.push(`${host}: sedang dijeda ${Math.ceil(left / 1000)} dtk karena membatasi permintaan; akan dicoba lagi otomatis`);
+      continue;
+    }
     const lane = laneFor(base);
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const r = await lane.run(() => once(base + path, init));
-        if (r.status === 429) {
-          const ra = Number(r.headers.get("retry-after"));
-          const wait = Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 10_000) : 1000 * 2 ** attempt;
-          lane.pause(wait);
-          if (attempt < 2) {
-            await sleep(wait);
-            continue;
-          }
-          errs.push(`${host}: HTTP 429 (dibatasi laju)`);
-          break;
-        }
-        if (!r.ok) throw new HttpErr(r.status, await r.text().catch(() => ""), host);
-        return r;
-      } catch (e) {
-        // Kesalahan permintaan (4xx selain 429) tidak akan berubah di penyedia lain.
-        if (e instanceof HttpErr && e.status >= 400 && e.status < 500) throw e;
-        if (e instanceof HttpErr) errs.push(e.message);
-        else if ((e as { name?: string }).name === "AbortError") errs.push(`${host}: tidak merespons (timeout)`);
-        else errs.push(`${host}: tidak bisa dihubungi (jaringan, CORS, atau diblokir)`);
-        break;
+    try {
+      const r = await lane.run(() => once(base + path, init));
+      if (r.status === 429) {
+        const ra = Number(r.headers.get("retry-after"));
+        const wait = br.trip(Date.now(), Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 120_000) : undefined);
+        lane.pause(wait);
+        errs.push(`${host}: HTTP 429 (dibatasi laju); dijeda ${Math.ceil(wait / 1000)} dtk`);
+        continue;
+      }
+      if (!r.ok) throw new HttpErr(r.status, await r.text().catch(() => ""), host);
+      br.reset();
+      return r;
+    } catch (e) {
+      // Kesalahan permintaan (4xx selain 429) tidak akan berubah di penyedia lain.
+      if (e instanceof HttpErr && e.status >= 400 && e.status < 500) throw e;
+      if (e instanceof HttpErr) {
+        errs.push(e.message);
+      } else if ((e as { name?: string }).name === "AbortError") {
+        errs.push(`${host}: tidak merespons (timeout)`);
+      } else {
+        // fetch gagal total: jaringan putus, ATAU 429 tanpa header CORS (paling sering untuk API publik).
+        const wait = br.trip();
+        lane.pause(wait);
+        errs.push(
+          `${host}: tidak bisa dihubungi. Jika berulang, kemungkinan besar penyedia membatasi laju (respons 429 tanpa header CORS tampil sebagai galat CORS di browser). Dijeda ${Math.ceil(wait / 1000)} dtk lalu dicoba lagi.`,
+        );
       }
     }
   }
@@ -101,8 +115,8 @@ export async function btcTxStatus(chain: ChainConfig, txid: string): Promise<"pe
   }
 }
 
-export async function btcTip(chain: ChainConfig): Promise<number> {
-  const n = Number((await (await req(chain, "/blocks/tip/height")).text()).trim());
+export async function btcTip(chain: ChainConfig, bypass = false): Promise<number> {
+  const n = Number((await (await req(chain, "/blocks/tip/height", {}, bypass)).text()).trim());
   if (!Number.isFinite(n)) throw new Error("Tinggi blok tidak valid.");
   return n;
 }

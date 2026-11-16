@@ -36,10 +36,10 @@ function identity(chain: ChainConfig, account: Account): Identity {
 
 type Loaded = { address: string; balance: string; pending: string | null; note: string | null };
 
-async function load(chain: ChainConfig, account: Account, force: boolean, fallbackAddress: string): Promise<Loaded> {
+async function load(chain: ChainConfig, account: Account, force: boolean, fallbackAddress: string, deep: boolean): Promise<Loaded> {
   const kind = kindOf(chain);
   if (kind === "btc") {
-    const scan = await scanBtc(chain, account, force);
+    const scan = await scanBtc(chain, account, { force, deep });
     if (!scan) throw new Error(NEED_PHRASE);
     return {
       address: scan.receiveAddress,
@@ -70,6 +70,8 @@ export type ChainData = {
   balance: string | null;
   pending: string | null;
   refresh: () => void;
+  /** Bitcoin: pindai ulang dengan gap 20 (lebih banyak permintaan ke penyedia data). */
+  deepScan: () => void;
 };
 
 /** Saldo + alamat untuk jaringan aktif (EVM, Bitcoin, atau Solana). */
@@ -79,6 +81,7 @@ export function useChainData(chain: ChainConfig, account: Account): ChainData {
   const [state, setState] = useState<State>({ key, loading: true, data: null, error: null });
   const [tick, setTick] = useState(0);
   const force = useRef(false);
+  const deepRef = useRef(false);
   const usable = "address" in ident;
   const fallbackAddress = usable ? ident.address : "";
 
@@ -89,8 +92,10 @@ export function useChainData(chain: ChainConfig, account: Account): ChainData {
     }
     let alive = true;
     const f = force.current;
+    const d = deepRef.current;
     force.current = false;
-    load(chain, account, f, fallbackAddress)
+    deepRef.current = false;
+    load(chain, account, f, fallbackAddress, d)
       .then((r) => alive && setState({ key, loading: false, data: r, error: null }))
       .catch((e) => {
         if (!alive) return;
@@ -119,6 +124,11 @@ export function useChainData(chain: ChainConfig, account: Account): ChainData {
     balance: cur.data?.balance ?? null,
     pending: cur.data?.pending ?? null,
     refresh: () => {
+      force.current = true;
+      setTick((t) => t + 1);
+    },
+    deepScan: () => {
+      deepRef.current = true;
       force.current = true;
       setTick((t) => t + 1);
     },
