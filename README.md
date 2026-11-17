@@ -62,10 +62,20 @@ desain, audit, dan penyimpanan dana di kontrak, bukan di wallet biasa ini.
 ## Sinkron Supabase (opsional)
 Tanpa Supabase, goal tersimpan lokal (localStorage) dan semuanya tetap berfungsi. Supabase menambah sinkron lintas perangkat dan cadangan.
 1. Buat proyek di supabase.com. SQL Editor: jalankan `supabase/schema.sql` (tabel, Row Level Security, Realtime).
-2. Authentication > Providers: aktifkan **Email**. Authentication > Email Templates > **Magic Link**: pastikan isinya memuat `{{ .Token }}`
-   (aplikasi memakai kode sekali pakai, bukan tautan). Kode bisa 6 atau 8 digit.
-3. Salin Project URL dan anon/publishable key ke `.env` (lihat `.env.example`) atau Netlify > Environment variables, lalu deploy ulang.
-4. Di tab Goal: masukkan email, lalu kode dari email.
+2. Authentication > Providers: aktifkan **Email**.
+3. Authentication > **URL Configuration**: isi **Site URL** dengan alamat situs Anda (mis. `https://situs-anda.netlify.app`) dan tambahkan juga ke
+   **Redirect URLs** (plus `http://localhost:5173` untuk uji lokal). Tanpa ini tautan di email bisa mengarah ke `localhost:3000` dan gagal.
+4. Authentication > **Email Templates**: yang Anda terima (kode atau tautan) ditentukan SEPENUHNYA oleh template. Edit template **Magic Link** dan
+   **Confirm signup** (akun baru bisa memakai yang kedua) agar memuat `{{ .Token }}`, mis.:
+   ```html
+   <h2>Kode masuk Kunci Wallet</h2>
+   <p>Masukkan kode ini di aplikasi: <strong>{{ .Token }}</strong></p>
+   <p>Atau klik: <a href="{{ .ConfirmationURL }}">masuk lewat tautan</a></p>
+   ```
+   Kode bisa 6 atau 8 digit. Aplikasi mendukung KEDUANYA: ketik kode, atau klik tautan (sesi terdeteksi otomatis).
+   Catatan iOS: tautan di email terbuka di Safari, bukan di aplikasi layar-beranda (penyimpanan terpisah), jadi untuk aplikasi layar-beranda gunakan kode.
+5. Salin Project URL dan anon/publishable key ke `.env` (lihat `.env.example`) atau Netlify > Environment variables, lalu deploy ulang.
+6. Di tab Goal: masukkan email, lalu kode dari email (atau klik tautannya).
 
 **Yang disimpan di Supabase:** nama goal, jaringan, satuan, nilai awal/target, status, dan snapshot nilai (USD/koin) dari waktu ke waktu, terkait akun email Anda.
 **Tidak disimpan:** alamat wallet, kunci, recovery phrase, password. Goal ditautkan ke wallet lewat `wallet_ref`, HMAC yang hanya bisa dihitung pemilik wallet.

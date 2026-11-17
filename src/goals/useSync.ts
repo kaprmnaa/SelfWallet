@@ -1,30 +1,54 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { currentUser, sendCode, signOut, startSync, syncConfigured, verifyCode, type SyncState } from "./sync";
+import { sendCode, signOut, startSync, syncConfigured, verifyCode, watchAuth, type SyncState } from "./sync";
 
 /** Status + aksi sinkron Supabase. Dipanggil sekali di Dashboard (aktif selama dompet terbuka). */
 export function useSync() {
   const [state, setState] = useState<SyncState>({ status: syncConfigured ? "signed-out" : "off" });
   const stop = useRef<(() => void) | null>(null);
+  const activeId = useRef<string | null>(null);
 
-  const begin = useCallback((id: string, email: string | null) => {
+  const halt = useCallback(() => {
     stop.current?.();
-    stop.current = startSync(id, setState, email ?? undefined);
+    stop.current = null;
+    activeId.current = null;
   }, []);
+
+  const begin = useCallback(
+    (id: string, email: string | null) => {
+      if (activeId.current === id) return; // sudah berjalan untuk pengguna ini
+      stop.current?.();
+      activeId.current = id;
+      stop.current = startSync(id, setState, email ?? undefined);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!syncConfigured) return;
     let alive = true;
-    currentUser()
-      .then((u) => {
-        if (alive && u) begin(u.id, u.email);
+    let unwatch: (() => void) | null = null;
+    watchAuth((u) => {
+      // Tunda: jangan memanggil Supabase langsung di dalam callback auth (bisa deadlock).
+      setTimeout(() => {
+        if (!alive) return;
+        if (u) begin(u.id, u.email);
+        else {
+          halt();
+          setState({ status: "signed-out" });
+        }
+      }, 0);
+    })
+      .then((fn) => {
+        if (alive) unwatch = fn;
+        else fn();
       })
       .catch(() => alive && setState({ status: "signed-out" }));
     return () => {
       alive = false;
-      stop.current?.();
-      stop.current = null;
+      unwatch?.();
+      halt();
     };
-  }, [begin]);
+  }, [begin, halt]);
 
   return {
     state,
@@ -35,8 +59,7 @@ export function useSync() {
       begin(u.id, u.email);
     },
     async signOut() {
-      stop.current?.();
-      stop.current = null;
+      halt();
       await signOut();
       setState({ status: "signed-out" });
     },

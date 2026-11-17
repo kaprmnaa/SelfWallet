@@ -19,7 +19,7 @@ function client(): Promise<SupabaseClient> {
   if (!syncConfigured) return Promise.reject(new Error("Supabase belum dikonfigurasi."));
   clientP ??= import("@supabase/supabase-js").then((m) =>
     m.createClient(URL!, KEY!, {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: "kunci-sb-auth" },
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: "kunci-sb-auth" },
     }),
   );
   return clientP;
@@ -35,7 +35,12 @@ export async function currentUser(): Promise<{ id: string; email: string | null 
 /** Kirim kode sekali pakai ke email. Template "Magic Link" di Supabase harus memuat {{ .Token }}. */
 export async function sendCode(email: string) {
   const sb = await client();
-  const { error } = await sb.auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: true } });
+  const { error } = await sb.auth.signInWithOtp({
+    email: email.trim(),
+    // Jika email berisi tautan (template bawaan), tautan kembali ke aplikasi ini. Alamat ini harus terdaftar di
+    // Supabase > Authentication > URL Configuration > Redirect URLs.
+    options: { shouldCreateUser: true, emailRedirectTo: window.location.origin },
+  });
   if (error) throw new Error(error.message);
 }
 
@@ -47,6 +52,26 @@ export async function verifyCode(email: string, token: string) {
   const u = data.user;
   if (!u) throw new Error("Verifikasi gagal.");
   return { id: u.id, email: u.email ?? null };
+}
+
+/** Proses token magic link di URL lebih awal (dipanggil dari main.tsx) agar sesi tersimpan walau dompet masih terkunci. */
+export async function consumeAuthRedirect(): Promise<void> {
+  if (!syncConfigured) return;
+  const sb = await client();
+  await sb.auth.getSession(); // menunggu inisialisasi yang memproses URL
+}
+
+/** Pantau status login (kode, tautan, atau tab lain). Mengembalikan fungsi berhenti. */
+export async function watchAuth(cb: (u: { id: string; email: string | null } | null) => void): Promise<() => void> {
+  const sb = await client();
+  const { data } = sb.auth.onAuthStateChange((event, session) => {
+    if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
+      cb(session?.user ? { id: session.user.id, email: session.user.email ?? null } : null);
+    } else if (event === "SIGNED_OUT") {
+      cb(null);
+    }
+  });
+  return () => data.subscription.unsubscribe();
 }
 
 export async function signOut() {

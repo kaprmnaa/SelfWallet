@@ -145,7 +145,7 @@ function SyncCard({ sync }: { sync: SyncApi }) {
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" className={inputCls} />
         </Field>
       ) : (
-        <Field label="Kode dari email" hint="Kode 6 sampai 8 digit. Cek juga folder spam." error={err}>
+        <Field label="Kode dari email" hint="Kode 6 sampai 8 digit, cek juga folder spam. Jika email hanya berisi tautan, klik tautannya (Anda kembali ke aplikasi dan otomatis masuk), atau ubah template email di Supabase agar memuat kode (lihat README)." error={err}>
           <input
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 10))}
