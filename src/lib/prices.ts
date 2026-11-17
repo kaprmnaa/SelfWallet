@@ -82,6 +82,9 @@ function getJson(url: string): Promise<Record<string, Partial<Price>>> {
 const toPrice = (x?: Partial<Price>): Price | null =>
   x && typeof x.usd === "number" ? { usd: x.usd, idr: typeof x.idr === "number" ? x.idr : 0 } : null;
 
+/** true jika jaringan ini punya harga native di CoinGecko (mainnet bawaan). */
+export const hasNativePrice = (chainId: number) => chainId in NATIVE_ID;
+
 /** Harga koin native per chainId (hanya mainnet bawaan). Satu permintaan, cache 5 menit. */
 export async function nativePrices(): Promise<Record<number, Price | null>> {
   const now = Date.now();

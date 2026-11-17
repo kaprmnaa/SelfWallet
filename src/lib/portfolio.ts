@@ -45,7 +45,7 @@ const base = (chain: ChainConfig): PortfolioRow => ({
   error: false,
 });
 
-async function rowsFor(chain: ChainConfig, account: Account, allTokens: Record<string, TokenInfo[]>): Promise<PortfolioRow[]> {
+export async function rowsFor(chain: ChainConfig, account: Account, allTokens: Record<string, TokenInfo[]>): Promise<PortfolioRow[]> {
   const kind = kindOf(chain);
 
   if (kind === "btc") {

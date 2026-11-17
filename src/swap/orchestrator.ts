@@ -5,6 +5,7 @@ import { lifi } from "./providers/lifi";
 import { allowedTargets } from "./registry";
 import { validateQuote } from "./quote/validate";
 import { upsertSwap } from "./store";
+import { assertNotLocked } from "../goals/guard";
 import type { NormalizedQuote, SwapExecution } from "./domain/types";
 import { ZERO_ADDRESS } from "./domain/types";
 
@@ -67,6 +68,7 @@ export async function fetchReview(input: SwapInput): Promise<Review> {
  */
 export async function runApproval(review: Review, onStep?: (text: string) => void): Promise<string[]> {
   const { input, quote, allowance } = review;
+  assertNotLocked(input.account, input.fromChain.chainId);
   const owner = input.account.address;
   const token = input.fromToken.address;
   const spender = quote.approvalAddress!;
@@ -86,6 +88,7 @@ export async function runApproval(review: Review, onStep?: (text: string) => voi
 /** Tanda tangani dan kirim transaksi swap, lalu catat eksekusi untuk dipantau. */
 export async function executeSwap(review: Review, approvalHashes: string[]): Promise<SwapExecution> {
   const { input, quote } = review;
+  assertNotLocked(input.account, input.fromChain.chainId);
   if (Date.now() >= quote.expiresAt) throw new Error("Quote sudah kedaluwarsa. Perbarui quote.");
   if (review.needsApproval) throw new Error("Approval belum selesai.");
   // Validasi ulang tepat sebelum menandatangani.

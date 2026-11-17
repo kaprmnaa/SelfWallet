@@ -42,6 +42,44 @@ Artinya CSP tidak lagi membatasi tujuan permintaan jaringan; pertahanan utama te
 Jika Anda tidak memakai jaringan kustom, ketatkan dengan mengganti `https:` memakai daftar host RPC di `src/lib/chains.ts`
 (ditambah `https://api.coingecko.com` untuk harga). Jangan menaruh API key rahasia di source publik.
 
+## Goal (journey) dan penguncian penarikan
+Tab **Goal**: buat goal bernama, mis. `target 100$` atau `10 to 100` (mulai 10, target 100), pilih **jaringan** dan satuan (USD untuk mainnet bawaan,
+atau koin native, termasuk testnet untuk uji coba). Progres, grafik perjalanan, dan status diperbarui otomatis.
+
+- **Pengukuran:** koin native + token tersimpan (EVM) di jaringan terpilih. Polling tiap 30 detik saat tab terlihat; harga CoinGecko di-cache 5 menit,
+  jadi ini *hampir realtime*, bukan streaming. Sinkron lintas perangkat memakai Supabase Realtime (jika diaktifkan).
+- **Tercapai** setelah target terbaca dua kali berturut-turut (menahan lonjakan sesaat). Status tercapai bersifat tetap.
+- **Penarikan dikunci:** selama goal aktif, aplikasi menolak kirim dan swap (termasuk approval) di jaringan itu untuk wallet itu. Dicek di panel
+  dan di semua fungsi penandatangan (`src/goals/guard.ts`).
+- **Pembatalan:** ajukan, tunggu 24 jam, lalu konfirmasi (bisa ditarik kembali). Ini gesekan sengaja terhadap keputusan impulsif.
+
+### Batasan penting
+**Ini komitmen di dalam aplikasi, BUKAN penguncian kriptografis.** Dompet ini self-custody: siapa pun yang punya recovery phrase atau keystore dan
+passwordnya bisa menarik dana lewat wallet lain, atau lewat salinan aplikasi ini yang datanya dihapus. Menghapus data browser juga menghapus kunci lokal
+(kecuali sinkron Supabase aktif). Penguncian yang sungguhan butuh smart contract (vault/timelock) atau, untuk Bitcoin, skrip timelock, dan itu memerlukan
+desain, audit, dan penyimpanan dana di kontrak, bukan di wallet biasa ini.
+
+## Sinkron Supabase (opsional)
+Tanpa Supabase, goal tersimpan lokal (localStorage) dan semuanya tetap berfungsi. Supabase menambah sinkron lintas perangkat dan cadangan.
+1. Buat proyek di supabase.com. SQL Editor: jalankan `supabase/schema.sql` (tabel, Row Level Security, Realtime).
+2. Authentication > Providers: aktifkan **Email**. Authentication > Email Templates > **Magic Link**: pastikan isinya memuat `{{ .Token }}`
+   (aplikasi memakai kode sekali pakai, bukan tautan). Kode bisa 6 atau 8 digit.
+3. Salin Project URL dan anon/publishable key ke `.env` (lihat `.env.example`) atau Netlify > Environment variables, lalu deploy ulang.
+4. Di tab Goal: masukkan email, lalu kode dari email.
+
+**Yang disimpan di Supabase:** nama goal, jaringan, satuan, nilai awal/target, status, dan snapshot nilai (USD/koin) dari waktu ke waktu, terkait akun email Anda.
+**Tidak disimpan:** alamat wallet, kunci, recovery phrase, password. Goal ditautkan ke wallet lewat `wallet_ref`, HMAC yang hanya bisa dihitung pemilik wallet.
+Kunci anon aman berada di sisi klien karena akses dibatasi Row Level Security. Sesi login Supabase tersimpan di browser.
+
+## iOS: Add to Home Screen (PWA)
+Manifest (`public/manifest.webmanifest`), ikon (`apple-touch-icon.png`, 192/512/maskable), dan meta tag iOS sudah dipasang, sehingga saat ditambahkan ke
+Layar Utama aplikasi terbuka layar penuh tanpa bilah Safari. Cara: buka situs di Safari > Bagikan > **Tambah ke Layar Utama**.
+- **Penyimpanan terpisah:** di iOS, aplikasi layar-beranda punya penyimpanan lokal yang TERPISAH dari Safari. Keystore dan goal yang tersimpan di Safari
+  tidak terlihat di aplikasi layar-beranda: buka/impor ulang keystore di sana (atau pakai sinkron Supabase untuk goal).
+- Input memakai font 16px di layar sentuh agar iOS tidak memperbesar halaman saat fokus. Auto-lock memakai jam (bukan hanya pewaktu), karena iOS
+  membekukan aplikasi di latar belakang.
+- Tidak ada service worker: tidak diperlukan untuk tampilan layar penuh, dan menghindari risiko berkas lama tersimpan di cache dompet.
+
 ## Swap (blueprint v2.0)
 Tab **Swap** (jaringan EVM mainnet: Ethereum, BNB Smart Chain, Polygon, Base). Same-chain dan cross-chain EVM lewat **LI.FI**.
 

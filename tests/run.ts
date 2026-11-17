@@ -5,6 +5,11 @@ import { breakdown } from "../src/swap/fees/breakdown";
 import { transition, canTransition } from "../src/swap/state-machine/machine";
 import { LIFI_DIAMOND } from "../src/swap/registry";
 import { Lane, Breaker } from "../src/lib/lane";
+import {
+  progress, evaluate, cancelInfo, requestCancel, revokeCancel, confirmCancel, blockingGoal, lockMessage,
+  shouldSnapshot, validateNewGoal, mergeGoal, CANCEL_COOLDOWN_MS, SNAPSHOT_MIN_INTERVAL_MS,
+} from "../src/goals/logic";
+import type { Goal } from "../src/goals/types";
 import { missingWindow, hintCandidates } from "../src/chains/bitcoin/gap";
 import { explainError, hostOf } from "../src/lib/explain";
 import type { SwapExecution } from "../src/swap/domain/types";
@@ -175,6 +180,61 @@ ok("breaker: dibatasi maksimum", (br.trip(0), br.trip(0)) === 4000);
 ok("breaker: Retry-After dari server dihormati", br.trip(0, 7000) === 7000);
 br.reset();
 ok("breaker: reset setelah sukses", br.remaining(0) === 0 && br.trip(0) === 1000);
+
+/* ------------------------------------------------------------------ Goal */
+const G = (over: Partial<Goal> = {}): Goal => ({
+  id: "g1", ref: "refA", name: "target 100$", chainId: 8453, unit: "usd", start: 10, target: 100,
+  status: "active", createdAt: 0, updatedAt: 0, ...over,
+});
+ok('goal: "10 to 100" progres dari nilai awal (10 -> 0%)', progress(G(), 10) === 0);
+ok('goal: "10 to 100" nilai 55 -> 50%', Math.abs(progress(G(), 55) - 0.5) < 1e-9);
+ok("goal: progres dibatasi 0..1", progress(G(), 5) === 0 && progress(G(), 500) === 1);
+
+let g = G();
+g = evaluate(g, 100, 1);
+ok("goal: pembacaan pertama >= target belum cukup (butuh 2 berturut-turut)", g.status === "active" && g.hits === 1);
+g = evaluate(g, 50, 2);
+ok("goal: turun di bawah target mereset hits", g.status === "active" && g.hits === 0);
+g = evaluate(evaluate(g, 120, 3), 120, 4);
+ok("goal: dua pembacaan berturut-turut => tercapai", g.status === "achieved" && g.achievedAt === 4);
+ok("goal: status tercapai bersifat tetap walau nilai turun", evaluate(g, 1, 5).status === "achieved");
+
+const base = G({ cancelRequestedAt: undefined });
+ok("goal: belum ada pengajuan pembatalan", cancelInfo(base, 0).requested === false);
+const req = requestCancel(base, 1000);
+ok("goal: pengajuan membuka masa tunggu 24 jam", cancelInfo(req, 1000).ready === false && cancelInfo(req, 1000 + CANCEL_COOLDOWN_MS).ready === true);
+try { confirmCancel(req, 1000 + 1000); ok("goal: konfirmasi sebelum masa tunggu ditolak", false); } catch { ok("goal: konfirmasi sebelum masa tunggu ditolak", true); }
+ok("goal: konfirmasi setelah masa tunggu membatalkan", confirmCancel(req, 1000 + CANCEL_COOLDOWN_MS).status === "cancelled");
+ok("goal: pengajuan bisa dibatalkan kembali", revokeCancel(req, 5).cancelRequestedAt === undefined);
+try { requestCancel(G({ status: "achieved" })); ok("goal: goal tercapai tidak bisa dibatalkan", false); } catch { ok("goal: goal tercapai tidak bisa dibatalkan", true); }
+
+const goalsList = [G(), G({ id: "g2", chainId: 1 }), G({ id: "g3", ref: "refB" }), G({ id: "g4", status: "achieved" }), G({ id: "g5", status: "cancelled" })];
+ok("kunci: goal aktif di jaringan + wallet yang sama memblokir", blockingGoal(goalsList, "refA", 8453)?.id === "g1");
+ok("kunci: jaringan lain tidak terkunci", blockingGoal([G()], "refA", 56) === null);
+ok("kunci: wallet lain tidak terkunci", blockingGoal([G()], "refZ", 8453) === null);
+ok("kunci: goal tercapai/dibatalkan tidak memblokir", blockingGoal([G({ status: "achieved" }), G({ status: "cancelled" })], "refA", 8453) === null);
+ok("kunci: pesan menyebut nama goal", lockMessage(G()).includes("target 100$"));
+
+ok("snapshot: pertama selalu dicatat", shouldSnapshot(undefined, 5, 100, 0));
+ok("snapshot: perubahan kecil dalam interval tidak dicatat", !shouldSnapshot({ ts: 0, value: 50 }, 50.5, 100, 1000));
+ok("snapshot: perubahan >= 1% target dicatat", shouldSnapshot({ ts: 0, value: 50 }, 51, 100, 1000));
+ok("snapshot: lewat interval dicatat", shouldSnapshot({ ts: 0, value: 50 }, 50, 100, SNAPSHOT_MIN_INTERVAL_MS));
+
+const vOk = { name: "  target   100$ ", unit: "usd" as const, usdSupported: true, start: 0, target: 100 };
+ok("validasi: nama dirapikan", validateNewGoal(vOk) === "target 100$");
+const bad = (over: object) => { try { validateNewGoal({ ...vOk, ...over }); return false; } catch { return true; } };
+ok("validasi: nama kosong ditolak", bad({ name: "   " }));
+ok("validasi: USD di jaringan tanpa harga ditolak", bad({ usdSupported: false }));
+ok("validasi: target <= 0 ditolak", bad({ target: 0 }));
+ok("validasi: nilai awal >= target ditolak", bad({ start: 100 }));
+ok("validasi: koin native di testnet diterima", (() => { try { validateNewGoal({ ...vOk, unit: "native", usdSupported: false }); return true; } catch { return false; } })());
+
+const act = G({ updatedAt: 100 });
+const ach = G({ status: "achieved", updatedAt: 50 });
+ok("merge: status akhir menang atas aktif walau lebih lama", mergeGoal(act, ach).status === "achieved");
+ok("merge: status akhir lokal tidak ditimpa remote aktif", mergeGoal(ach, act).status === "achieved");
+ok("merge: sama-sama aktif, yang terbaru menang", mergeGoal(G({ updatedAt: 1, name: "a" }), G({ updatedAt: 2, name: "b" })).name === "b");
+ok("merge: tanpa data lokal memakai remote", mergeGoal(undefined, act) === act);
 
 laneTest().then(() => {
   console.log(`\n${pass} lolos, ${fail} gagal`);

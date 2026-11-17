@@ -16,6 +16,8 @@ import { valueGapPct } from "../swap/quote/validate";
 import { recoveryGuide } from "../swap/recovery/guide";
 import { STATE_LABEL, TERMINAL_STATES, type SwapExecution, type SwapState } from "../swap/domain/types";
 import { useSwaps } from "../swap/store";
+import { useGoalLock } from "../goals/useLock";
+import GoalLockNotice from "./GoalLockNotice";
 import { Button, DetailRow, Field, Modal, Notice, StatusDot, inputCls } from "./ui";
 
 type Props = { account: Account; chain: ChainConfig; onChanged: () => void };
@@ -64,6 +66,7 @@ export default function SwapPanel(props: Props) {
 
 function SwapForm({ account, chain, onChanged }: Props) {
   const { chains, tokens, allTokens } = useSettings();
+  const lock = useGoalLock(chain, account);
   const swapChains = chains.filter((c) => SWAP_CHAIN_IDS.includes(c.chainId));
   const owner = account.address;
 
@@ -209,6 +212,7 @@ function SwapForm({ account, chain, onChanged }: Props) {
 
   return (
     <div className="grid gap-8">
+      {lock && <GoalLockNotice goal={lock} />}
       <form onSubmit={requestQuote} className="grid gap-5">
         <Field label={`Bayar (${chain.name})`}>
           <select value={fromKey} onChange={(e) => { setFromKey(e.target.value); setAmount(""); }} className={inputCls}>
@@ -297,7 +301,7 @@ function SwapForm({ account, chain, onChanged }: Props) {
           </div>
         </div>
 
-        <Button type="submit" disabled={!amount || (toKey === "custom" && !customTo.trim())} busy={busy === "quote" && !review}>
+        <Button type="submit" disabled={!amount || (toKey === "custom" && !customTo.trim()) || !!lock} busy={busy === "quote" && !review}>
           {busy === "quote" && !review ? "Mencari rute terbaik…" : "Dapatkan quote"}
         </Button>
         <p className="text-xs leading-relaxed text-zinc-600">

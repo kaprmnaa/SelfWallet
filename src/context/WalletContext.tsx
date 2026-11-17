@@ -28,6 +28,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const timer = useRef<number | undefined>(undefined);
+  const lastActive = useRef(Date.now());
 
   const lock = useCallback(() => {
     setSessions([]);
@@ -52,17 +53,25 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!open) return;
     const reset = () => {
+      lastActive.current = Date.now();
       window.clearTimeout(timer.current);
       timer.current = window.setTimeout(lock, AUTO_LOCK_MS);
     };
     const events = ["pointerdown", "keydown", "touchstart"] as const;
     events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
     window.addEventListener("pagehide", lock);
+    // Aplikasi layar-beranda iOS dibekukan di latar belakang: pewaktu bisa berhenti. Periksa berdasarkan
+    // jam saat kembali terlihat, dan kunci jika sudah terlalu lama tidak aktif.
+    const onVisible = () => {
+      if (!document.hidden && Date.now() - lastActive.current > AUTO_LOCK_MS) lock();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     reset();
     return () => {
       window.clearTimeout(timer.current);
       events.forEach((e) => window.removeEventListener(e, reset));
       window.removeEventListener("pagehide", lock);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [open, lock]);
 

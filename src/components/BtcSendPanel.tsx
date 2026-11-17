@@ -6,6 +6,8 @@ import { useSettings } from "../context/SettingsContext";
 import { feeQuote, TIER_LABEL, type FeeQuote, type FeeTier } from "../chains/bitcoin/fees";
 import { btcAmount, prepareBtc, signAndSendBtc, type BtcPrepared } from "../chains/bitcoin/transaction";
 import { errMsg, trimAmount } from "../lib/format";
+import { useGoalLock } from "../goals/useLock";
+import GoalLockNotice from "./GoalLockNotice";
 import { Button, DetailRow, Field, Modal, Notice, StatusDot, inputCls } from "./ui";
 
 const STALE_MS = 90_000;
@@ -23,6 +25,7 @@ export default function BtcSendPanel({
   onSent: () => void;
 }) {
   const { history, addHistory } = useSettings();
+  const lock = useGoalLock(chain, account);
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
   const [max, setMax] = useState(false);
@@ -103,6 +106,7 @@ export default function BtcSendPanel({
 
   return (
     <div className="grid gap-6">
+      {lock && <GoalLockNotice goal={lock} />}
       <form onSubmit={review} className="grid gap-5">
         <Field label="Alamat penerima" hint={`Format ${chain.testnet ? "tb1…" : "bc1…, 1…, atau 3…"} sesuai jaringan.`}>
           <input
@@ -158,7 +162,7 @@ export default function BtcSendPanel({
           )}
         </div>
 
-        <Button type="submit" disabled={!to || (!max && !amount) || !quote} busy={preparing}>
+        <Button type="submit" disabled={!to || (!max && !amount) || !quote || !!lock} busy={preparing}>
           {preparing ? "Memindai UTXO…" : "Tinjau transaksi"}
         </Button>
       </form>

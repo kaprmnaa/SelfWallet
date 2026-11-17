@@ -11,6 +11,7 @@ import { assertChain, withProvider } from "./rpc";
 import { encodeTransfer, tokenBalanceOn, type TokenInfo } from "./tokens";
 import { trimAmount } from "./format";
 import type { Account } from "./vault";
+import { assertNotLocked } from "../goals/guard";
 
 export type Draft = {
   chain: ChainConfig;
@@ -113,6 +114,7 @@ export const feeWei = (p: Prepared) => p.gasLimit * p.feeCap;
 
 /** Tandatangani secara lokal, lalu siarkan raw transaction. Mengembalikan hash. */
 export async function signAndSend(account: Account, prepared: Prepared): Promise<string> {
+  assertNotLocked(account, prepared.draft.chain.chainId);
   const { chain } = prepared.draft;
   const raw = await account.signTransaction(prepared.tx);
 

@@ -12,6 +12,8 @@ import { fmtIdr, fmtUsd, usePortfolio } from "../lib/portfolio";
 import { clearWallets, loadWallets } from "../lib/vaultStore";
 import { SOL_PATH, btcAccountPath, btcNet } from "../core/derive";
 import { useSwapTracker } from "../swap/tracker";
+import { useGoalEngine } from "../goals/engine";
+import { useSync } from "../goals/useSync";
 import type { Account } from "../lib/vault";
 import ChainPulse from "./ChainPulse";
 import NetworkSwitcher from "./NetworkSwitcher";
@@ -22,6 +24,7 @@ import { Button, CopyButton, Notice, Skeleton, Tabs, spring } from "./ui";
 
 const SendPanel = lazy(() => import("./SendPanel"));
 const SwapPanel = lazy(() => import("./SwapPanel"));
+const GoalsPanel = lazy(() => import("./GoalsPanel"));
 const EndpointModal = lazy(() => import("./EndpointModal"));
 const BtcSendPanel = lazy(() => import("./BtcSendPanel"));
 const SolSendPanel = lazy(() => import("./SolSendPanel"));
@@ -29,9 +32,10 @@ const ReceivePanel = lazy(() => import("./ReceivePanel"));
 const TokensPanel = lazy(() => import("./TokensPanel"));
 const HistoryPanel = lazy(() => import("./HistoryPanel"));
 
-type Tab = "portofolio" | "kirim" | "swap" | "terima" | "token" | "riwayat";
+type Tab = "portofolio" | "goal" | "kirim" | "swap" | "terima" | "token" | "riwayat";
 const TABS: { key: Tab; label: string }[] = [
   { key: "portofolio", label: "Aset" },
+  { key: "goal", label: "Goal" },
   { key: "kirim", label: "Kirim" },
   { key: "swap", label: "Swap" },
   { key: "terima", label: "Terima" },
@@ -65,6 +69,10 @@ export default function Dashboard({ account }: { account: Account }) {
   const data = useChainData(chain, account);
   const pf = usePortfolio(account, testMode, allTokens, chains);
   const { address, owner } = data;
+
+  // Goal: pantau progres (polling 30 dtk saat tab terlihat) dan sinkron Supabase opsional.
+  const engine = useGoalEngine(account, chains, allTokens);
+  const sync = useSync();
 
   // Pantau swap yang sedang berjalan (tahan restart: status tersimpan di browser).
   useSwapTracker(chains, () => {
@@ -228,6 +236,7 @@ export default function Dashboard({ account }: { account: Account }) {
                     ) : (
                       <SendPanel account={account} chain={chain} address={address} onSent={afterSend} />
                     ))}
+                  {activeTab === "goal" && <GoalsPanel account={account} chain={chain} engine={engine} sync={sync} />}
                   {activeTab === "swap" && <SwapPanel account={account} chain={chain} onChanged={afterSend} />}
                   {activeTab === "terima" &&
                     (data.unsupported ? (

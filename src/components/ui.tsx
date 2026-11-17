@@ -193,7 +193,7 @@ export function Tabs<T extends string>({
           type="button"
           aria-selected={value === it.key}
           onClick={() => onChange(it.key)}
-          className={`relative flex-1 whitespace-nowrap pb-3 text-center text-[13px] transition-colors duration-300 sm:flex-none sm:text-sm ${
+          className={`relative flex-1 whitespace-nowrap pb-3 text-center text-[12px] transition-colors duration-300 min-[400px]:text-[13px] sm:flex-none sm:text-sm ${
             value === it.key ? "text-zinc-50" : "text-zinc-500 hover:text-zinc-300"
           }`}
         >

@@ -4,6 +4,7 @@ import { formatUnits } from "ethers";
 import type { ChainConfig } from "../../lib/chains";
 import type { Account } from "../../lib/vault";
 import { parseAmount } from "../../lib/tx";
+import { assertNotLocked } from "../../goals/guard";
 import { NEED_PHRASE, solAccount } from "../../core/derive";
 import { assertSolCluster, solBalance, solRpc } from "./rpc";
 
@@ -129,6 +130,7 @@ export async function prepareSol(
 
 /** Tandatangani lokal (Ed25519) lalu siarkan. Mengembalikan signature (id transaksi). */
 export async function signAndSendSol(account: Account, p: SolPrepared): Promise<string> {
+  assertNotLocked(account, p.chain.chainId);
   const sol = solAccount(account);
   if (!sol) throw new Error(NEED_PHRASE);
   verifyMessage(p.message, sol.publicKey, base58.decode(p.to), p.lamports);

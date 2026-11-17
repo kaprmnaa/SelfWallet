@@ -3,6 +3,7 @@ import { formatUnits } from "ethers";
 import type { ChainConfig } from "../../lib/chains";
 import type { Account } from "../../lib/vault";
 import { parseAmount } from "../../lib/tx";
+import { assertNotLocked } from "../../goals/guard";
 import {
   NEED_PHRASE,
   btcAccountNode,
@@ -85,6 +86,7 @@ export async function prepareBtc(
 
 /** Tandatangani lokal, periksa kesesuaian dengan ringkasan, lalu siarkan. Mengembalikan txid. */
 export async function signAndSendBtc(account: Account, p: BtcPrepared): Promise<string> {
+  assertNotLocked(account, p.chain.chainId);
   const seed = getSeed(account);
   if (!seed) throw new Error(NEED_PHRASE);
   const net = btcNet(p.chain.testnet);
