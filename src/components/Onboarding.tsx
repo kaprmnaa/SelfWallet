@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { AnimatePresence, m } from "framer-motion";
-import { DownloadSimple, Eye, EyeSlash, Key, UploadSimple, Warning } from "@phosphor-icons/react";
+import { DownloadSimple, Eye, EyeSlash, Key, Fingerprint, UploadSimple, Warning } from "@phosphor-icons/react";
 import type { HDNodeWallet } from "ethers";
 import { isKeystoreJson } from "ethers";
 import { useWallet } from "../context/WalletContext";
@@ -22,6 +22,17 @@ import {
   suggestName,
   type SavedWallet,
 } from "../lib/vaultStore";
+import {
+  BiometricError,
+  beginEnroll,
+  biometricName,
+  biometricPassword,
+  hasBiometric,
+  removeBiometric,
+  sealEnroll,
+  useBiometricSupport,
+  type PendingEnroll,
+} from "../lib/biometric";
 import WalletAvatar from "./WalletAvatar";
 import {
   Button,
@@ -117,10 +128,18 @@ export function UnlockForm({ onDone }: DoneProps) {
   const [err, setErr] = useState("");
   const [progress, setProgress] = useState<number | null>(null);
   const suggested = useMemo(() => suggestName(sessions.map((s) => s.name)), [sessions]);
+  const bioOk = useBiometricSupport();
+  const [bioVer, setBioVer] = useState(0); // paksa render ulang setelah Face ID dimatikan/dibuang
+  const [enableBio, setEnableBio] = useState(false);
+  const [usePw, setUsePw] = useState(false);
+  const bioName = biometricName();
 
   const selected = saved.find((w) => w.id === selId) ?? null;
   const fromSaved = !!selected && !useFile;
   const activeJson = fromSaved ? selected!.json : json;
+  void bioVer;
+  const bioOn = bioOk && fromSaved && hasBiometric(selected!.id);
+  const canEnroll = bioOk && !bioOn && (fromSaved || remember);
 
   async function onFile(e: ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -133,19 +152,59 @@ export function UnlockForm({ onDone }: DoneProps) {
     setFileName(f.name);
   }
 
+  async function openWith(password: string, pending?: PendingEnroll) {
+    const a = await unlockKeystore(activeJson, password, (p) => setProgress(p));
+    let name = fromSaved ? selected!.name : suggested;
+    if (!fromSaved && remember) name = saveWallet(a.address, activeJson, suggested).name;
+    // Password sudah terbukti benar: segel untuk Face ID (gagal menyimpan tidak boleh menggagalkan pembukaan).
+    if (pending && (fromSaved || remember)) await sealEnroll(pending, a.address.toLowerCase(), password).catch(() => {});
+    setPw("");
+    addSession(a, name);
+    onDone?.();
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     setErr("");
+    let pending: PendingEnroll | undefined;
+    if (enableBio && canEnroll) {
+      // Wajib sebelum scrypt: WebAuthn di Safari hanya jalan dalam gestur sentuhan langsung.
+      try {
+        pending = await beginEnroll(selected?.name ?? suggested);
+      } catch (ex) {
+        return setErr(ex instanceof BiometricError && ex.code === "cancelled" ? `${bioName} dibatalkan.` : errMsg(ex));
+      }
+    }
     setProgress(0);
     try {
-      const a = await unlockKeystore(activeJson, pw, (p) => setProgress(p));
-      let name = fromSaved ? selected!.name : suggested;
-      if (!fromSaved && remember) name = saveWallet(a.address, activeJson, suggested).name;
-      setPw("");
-      addSession(a, name);
-      onDone?.();
+      await openWith(pw, pending);
     } catch {
       setErr("Password salah atau file keystore rusak.");
+      setProgress(null);
+    }
+  }
+
+  async function viaBiometric() {
+    if (!selected) return;
+    setErr("");
+    let password: string;
+    try {
+      password = await biometricPassword(selected.id);
+    } catch (ex) {
+      if (ex instanceof BiometricError && ex.code === "invalid") {
+        removeBiometric(selected.id);
+        setBioVer((v) => v + 1);
+        setUsePw(true);
+      }
+      if (!(ex instanceof BiometricError && ex.code === "cancelled")) setErr(errMsg(ex));
+      return;
+    }
+    setProgress(0);
+    try {
+      await openWith(password);
+    } catch {
+      setErr("Gagal membuka. Masukkan password.");
+      setUsePw(true);
       setProgress(null);
     }
   }
@@ -153,6 +212,7 @@ export function UnlockForm({ onDone }: DoneProps) {
   function forget() {
     if (!selected) return;
     removeSaved(selected.id);
+    removeBiometric(selected.id);
     const rest = saved.filter((w) => w.id !== selected.id);
     setSaved(rest);
     setSelId(rest[0]?.id ?? null);
@@ -208,21 +268,47 @@ export function UnlockForm({ onDone }: DoneProps) {
           </label>
         </>
       )}
-      <Field label="Password" error={activeJson ? err : undefined}>
-        <input
-          type="password"
-          autoComplete="current-password"
-          value={pw}
-          onChange={(e) => setPw(e.target.value)}
-          className={inputCls}
-        />
-      </Field>
-      {progress !== null && <ProgressBar value={progress} />}
-      <Magnetic>
-        <Button type="submit" disabled={!activeJson || !pw} busy={progress !== null} className="w-full">
-          {progress !== null ? "Membuka…" : "Buka"}
-        </Button>
-      </Magnetic>
+      {bioOn && !usePw ? (
+        <>
+          {err && <p className="text-xs text-rose-300">{err}</p>}
+          {progress !== null && <ProgressBar value={progress} />}
+          <Magnetic>
+            <Button type="button" onClick={viaBiometric} busy={progress !== null} className="w-full">
+              <Fingerprint />
+              {progress !== null ? "Membuka…" : `Buka dengan ${bioName}`}
+            </Button>
+          </Magnetic>
+        </>
+      ) : (
+        <>
+          <Field label="Password" error={activeJson ? err : undefined}>
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+              className={inputCls}
+            />
+          </Field>
+          {canEnroll && (
+            <label className="flex items-start gap-3 text-sm text-zinc-400">
+              <input
+                type="checkbox"
+                checked={enableBio}
+                onChange={(e) => setEnableBio(e.target.checked)}
+                className="mt-1 size-4 accent-[#398BFF]"
+              />
+              Aktifkan {bioName}
+            </label>
+          )}
+          {progress !== null && <ProgressBar value={progress} />}
+          <Magnetic>
+            <Button type="submit" disabled={!activeJson || !pw} busy={progress !== null} className="w-full">
+              {progress !== null ? "Membuka…" : "Buka"}
+            </Button>
+          </Magnetic>
+        </>
+      )}
       {saved.length > 0 && (
         <div className="flex items-center justify-between gap-4 text-xs">
           <button
@@ -235,11 +321,37 @@ export function UnlockForm({ onDone }: DoneProps) {
           >
             {useFile ? "Wallet tersimpan" : "File lain"}
           </button>
-          {fromSaved && (
-            <button type="button" onClick={forget} className="text-zinc-500 transition-colors duration-300 hover:text-rose-300">
-              Lupakan
-            </button>
-          )}
+          <span className="flex items-center gap-4">
+            {bioOn && (
+              <button
+                type="button"
+                onClick={() => {
+                  setUsePw((v) => !v);
+                  setErr("");
+                }}
+                className="text-zinc-400 transition-colors duration-300 hover:text-zinc-100"
+              >
+                {usePw ? bioName : "Password"}
+              </button>
+            )}
+            {bioOn && usePw && (
+              <button
+                type="button"
+                onClick={() => {
+                  removeBiometric(selected!.id);
+                  setBioVer((v) => v + 1);
+                }}
+                className="text-zinc-500 transition-colors duration-300 hover:text-rose-300"
+              >
+                Matikan {bioName}
+              </button>
+            )}
+            {fromSaved && (
+              <button type="button" onClick={forget} className="text-zinc-500 transition-colors duration-300 hover:text-rose-300">
+                Lupakan
+              </button>
+            )}
+          </span>
         </div>
       )}
     </form>
@@ -517,6 +629,10 @@ function BackupStep({
   const [saved, setSaved] = useState(false);
   const [ack, setAck] = useState(false);
   const [remember, setRemember] = useState(true);
+  const [enableBio, setEnableBio] = useState(false);
+  const [bioErr, setBioErr] = useState("");
+  const bioOk = useBiometricSupport();
+  const bioName = biometricName();
   const started = useRef(false);
 
   useEffect(() => {
@@ -571,9 +687,31 @@ function BackupStep({
             />
             Ingat di browser ini
           </label>
+          {bioOk && remember && (
+            <label className="flex items-start gap-3 text-sm text-zinc-400">
+              <input
+                type="checkbox"
+                checked={enableBio}
+                onChange={(e) => setEnableBio(e.target.checked)}
+                className="mt-1 size-4 accent-[#398BFF]"
+              />
+              Aktifkan {bioName}
+            </label>
+          )}
+          {bioErr && <p className="text-xs text-rose-300">{bioErr}</p>}
           <Button
-            onClick={() => {
+            onClick={async () => {
+              setBioErr("");
+              let pending: PendingEnroll | undefined;
+              if (bioOk && remember && enableBio) {
+                try {
+                  pending = await beginEnroll(name);
+                } catch (ex) {
+                  return setBioErr(ex instanceof BiometricError && ex.code === "cancelled" ? `${bioName} dibatalkan.` : errMsg(ex));
+                }
+              }
               const finalName = remember && json ? saveWallet(account.address, json, name).name : name;
+              if (pending) await sealEnroll(pending, account.address.toLowerCase(), password).catch(() => {});
               onEnter(finalName);
             }}
             disabled={!saved || !ack}

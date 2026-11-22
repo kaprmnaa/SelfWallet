@@ -1,5 +1,7 @@
 // Hanya untuk data NON-rahasia (preferensi, daftar token, riwayat hash).
 // Jangan pernah menyimpan password, recovery phrase, atau private key di sini.
+// Satu-satunya pengecualian: lib/biometric.ts menyimpan password yang SUDAH TERENKRIPSI dengan kunci yang hanya bisa
+// dikeluarkan setelah verifikasi Face ID (opt-in); kuncinya sendiri tidak pernah disimpan.
 const PREFIX = "kunci:v1:";
 
 export function load<T>(key: string, fallback: T): T {

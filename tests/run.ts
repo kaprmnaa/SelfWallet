@@ -13,6 +13,8 @@ import {
   allocate, checkWithdrawal, outgoingValue, setFunded, modeOf, isLockMode, lockGoals, poolCurrency,
 } from "../src/goals/allocation";
 import { parseItem } from "../src/history/crypto";
+import { keyFromSecret, sealPassword, openPassword } from "../src/lib/biometric";
+import { hkdf32 } from "../src/lib/kdf";
 import { durationMs, planTimeLock, activeTimeLock, mergeTimeLock, formatRemaining } from "../src/goals/timelock";
 import type { Goal } from "../src/goals/types";
 import { missingWindow, hintCandidates } from "../src/chains/bitcoin/gap";
@@ -306,6 +308,23 @@ ok("riwayat: jumlah non-numerik ditolak", parseItem({ ...HI, amount: "1e999<scri
 ok("riwayat: string kepanjangan ditolak", parseItem({ ...HI, to: "x".repeat(101) }) === null);
 ok("riwayat: bukan objek ditolak", parseItem(null) === null && parseItem("x") === null && parseItem(42) === null);
 ok("riwayat: chainId/ts tidak valid ditolak", parseItem({ ...HI, chainId: 1.5 }) === null && parseItem({ ...HI, ts: NaN }) === null);
+
+/* ------------------------------------------------------------ Face ID: segel password */
+{
+  const secretA = new Uint8Array(32).fill(7);
+  const secretB = new Uint8Array(32).fill(8);
+  const kA = await keyFromSecret(secretA);
+  const kB = await keyFromSecret(secretB);
+  const blob = await sealPassword(kA, "0xwallet1", "Sandi-Rahasia 123!");
+  ok("faceid: segel lalu buka = password asli", (await openPassword(kA, "0xwallet1", blob)) === "Sandi-Rahasia 123!");
+  ok("faceid: ciphertext tidak memuat password", !Buffer.from(blob, "base64").toString("latin1").includes("Sandi"));
+  ok("faceid: dua penyegelan menghasilkan blob berbeda (IV acak)", blob !== (await sealPassword(kA, "0xwallet1", "Sandi-Rahasia 123!")));
+  ok("faceid: kunci biometrik lain ditolak", await openPassword(kB, "0xwallet1", blob).then(() => false, () => true));
+  ok("faceid: dipindah ke wallet lain ditolak (AAD)", await openPassword(kA, "0xwallet2", blob).then(() => false, () => true));
+  ok("faceid: blob rusak/pendek ditolak", await openPassword(kA, "0xwallet1", "AAAA").then(() => false, () => true));
+  ok("faceid: hkdf32 deterministik dan 32 byte", hkdf32(secretA, new Uint8Array([1])).length === 32 && Buffer.from(hkdf32(secretA, new Uint8Array([1]))).equals(Buffer.from(hkdf32(secretA, new Uint8Array([1])))));
+  ok("faceid: info berbeda -> kunci berbeda", !Buffer.from(hkdf32(secretA, new Uint8Array([1]))).equals(Buffer.from(hkdf32(secretA, new Uint8Array([2])))));
+}
 
 laneTest().then(() => {
   console.log(`\n${pass} lolos, ${fail} gagal`);

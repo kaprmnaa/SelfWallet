@@ -1,3 +1,4 @@
+import { removeBiometric } from "./biometric";
 import { getAddress } from "ethers";
 import { load, remove, save } from "./storage";
 
@@ -87,9 +88,11 @@ export function renameSaved(id: string, name: string) {
 
 export function removeSaved(id: string) {
   save(KEY, loadWallets().filter((w) => w.id !== id));
+  removeBiometric(id); // data Face ID wallet ini tidak boleh tertinggal
 }
 
 export function clearWallets() {
   remove(KEY);
+  remove("biometric");
   remove("vault");
 }

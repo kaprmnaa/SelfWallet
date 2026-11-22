@@ -1,10 +1,10 @@
-import { hkdf } from "@noble/hashes/hkdf";
 import { hmac } from "@noble/hashes/hmac";
 import { sha256 } from "@noble/hashes/sha256";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils";
 import { base64 } from "@scure/base";
 import type { HistoryItem } from "../context/SettingsContext";
 import { walletRef } from "../goals/ref";
+import { hkdf32 } from "../lib/kdf";
 
 /**
  * Riwayat dienkripsi di perangkat sebelum dikirim ke Supabase (AES-GCM 256).
@@ -13,6 +13,7 @@ import { walletRef } from "../goals/ref";
  * Hash, alamat, jumlah, dan status TIDAK terbaca server.
  */
 type Account = { address: string; privateKey: string };
+
 type Keys = { aes: CryptoKey; idKey: Uint8Array; ref: string };
 
 const cache = new WeakMap<object, Promise<Keys>>();
@@ -21,8 +22,8 @@ export function keysFor(account: Account): Promise<Keys> {
   let p = cache.get(account);
   if (!p) {
     const ikm = utf8ToBytes(account.privateKey);
-    const raw = hkdf(sha256, ikm, undefined, utf8ToBytes("kunci-history-aes-v1"), 32);
-    const idKey = hkdf(sha256, ikm, undefined, utf8ToBytes("kunci-history-id-v1"), 32);
+    const raw = hkdf32(ikm, utf8ToBytes("kunci-history-aes-v1"));
+    const idKey = hkdf32(ikm, utf8ToBytes("kunci-history-id-v1"));
     p = crypto.subtle.importKey("raw", raw as BufferSource, "AES-GCM", false, ["encrypt", "decrypt"]).then((aes) => ({ aes, idKey, ref: walletRef(account) }));
     cache.set(account, p);
   }

@@ -62,6 +62,11 @@ atau koin native, termasuk testnet untuk uji coba). Progres, grafik perjalanan, 
 - **Kunci semua jaringan (waktu):** di tab Goal, isi angka + satuan (menit/jam/hari). Selama waktunya belum habis, SEMUA kirim, swap, dan approval di
   SEMUA jaringan untuk wallet itu ditolak. Min 1 menit, maks 365 hari. Tidak bisa dibatalkan atau dipersingkat, hanya diperpanjang (setelah konfirmasi).
   Memakai jam perangkat (mengubah jam perangkat bisa mengakalinya, seperti semua komitmen di dalam aplikasi ini).
+- **Face ID / Touch ID (opt-in):** di form Buka, centang "Aktifkan Face ID" saat membuka wallet (atau di langkah "Masuk" setelah Buat/Impor). Berikutnya cukup
+  tombol "Buka dengan Face ID", tanpa password. Memakai WebAuthn + ekstensi PRF (butuh iOS/Safari 18+ dan HTTPS atau localhost): passkey di Secure Enclave
+  menghasilkan rahasia hanya setelah verifikasi biometrik, dipakai sebagai kunci AES-GCM yang mengenkripsi password vault. Yang tersimpan di browser hanya
+  password terenkripsi; kuncinya tidak pernah disimpan. Siapa pun yang lolos verifikasi perangkat (termasuk passcode perangkat) bisa membuka wallet ini, dan
+  menghapus passkey membuat data Face ID tidak bisa dibuka lagi (kembali ke password). Fitur disembunyikan otomatis jika tidak didukung.
 - **Riwayat tersinkron (terenkripsi):** setelah masuk (tab Goal), riwayat transaksi tersimpan di Supabase dan terlihat di perangkat mana pun yang membuka wallet
   yang sama. Dienkripsi di perangkat (AES-GCM, kunci diturunkan dari private key): server hanya melihat ciphertext, penanda wallet, chain id, dan waktu.
   Hash, alamat, jumlah, dan status tidak terbaca. Hanya pengiriman yang tercatat (swap belum). Jalankan ulang `supabase/schema.sql` untuk tabel `tx_history`.
