@@ -145,7 +145,7 @@ export default function CustomChainModal({ open, onClose }: { open: boolean; onC
               type="checkbox"
               checked={testnet}
               onChange={(e) => setTestnet(e.target.checked)}
-              className="mt-1 size-4 accent-[#5fb396]"
+              className="mt-1 size-4 accent-[#398BFF]"
             />
             Ini jaringan testnet. Hilangkan centang untuk mainnet (dana sungguhan).
           </label>

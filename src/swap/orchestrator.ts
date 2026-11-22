@@ -1,3 +1,4 @@
+import { formatUnits } from "ethers";
 import { type ChainConfig } from "../lib/chains";
 import type { Account } from "../lib/vault";
 import { prepareCall, readAllowance, sendCall, encodeApprove, waitReceipt } from "../chains/evm/call";
@@ -5,7 +6,7 @@ import { lifi } from "./providers/lifi";
 import { allowedTargets } from "./registry";
 import { validateQuote } from "./quote/validate";
 import { upsertSwap } from "./store";
-import { assertNotLocked } from "../goals/guard";
+import { assertCanSpend } from "../goals/guard";
 import type { NormalizedQuote, SwapExecution } from "./domain/types";
 import { ZERO_ADDRESS } from "./domain/types";
 
@@ -28,6 +29,12 @@ export type Review = {
   allowance: bigint;
   needsApproval: boolean;
 };
+
+/** Dana yang keluar dari wallet untuk swap ini (untuk pengecekan dana terkunci). */
+export function swapOutgoing(input: SwapInput) {
+  const amount = Number(formatUnits(input.amount, input.fromToken.decimals));
+  return input.fromToken.native ? { native: amount } : { token: { address: input.fromToken.address, amount } };
+}
 
 /** Ambil quote, validasi lokal, dan cek allowance. Tidak mengirim apa pun. */
 export async function fetchReview(input: SwapInput): Promise<Review> {
@@ -68,7 +75,8 @@ export async function fetchReview(input: SwapInput): Promise<Review> {
  */
 export async function runApproval(review: Review, onStep?: (text: string) => void): Promise<string[]> {
   const { input, quote, allowance } = review;
-  assertNotLocked(input.account, input.fromChain.chainId);
+  // Approval tidak memindahkan dana, tetapi jumlahnya tidak boleh melebihi dana yang tidak terkunci.
+  await assertCanSpend(input.account, input.fromChain, swapOutgoing(input));
   const owner = input.account.address;
   const token = input.fromToken.address;
   const spender = quote.approvalAddress!;
@@ -88,7 +96,7 @@ export async function runApproval(review: Review, onStep?: (text: string) => voi
 /** Tanda tangani dan kirim transaksi swap, lalu catat eksekusi untuk dipantau. */
 export async function executeSwap(review: Review, approvalHashes: string[]): Promise<SwapExecution> {
   const { input, quote } = review;
-  assertNotLocked(input.account, input.fromChain.chainId);
+  await assertCanSpend(input.account, input.fromChain, swapOutgoing(input));
   if (Date.now() >= quote.expiresAt) throw new Error("Quote sudah kedaluwarsa. Perbarui quote.");
   if (review.needsApproval) throw new Error("Approval belum selesai.");
   // Validasi ulang tepat sebelum menandatangani.

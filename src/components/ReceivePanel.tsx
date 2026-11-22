@@ -15,7 +15,7 @@ export default function ReceivePanel({ address, chain }: { address: string; chai
           margin: 1,
           width: 240,
           errorCorrectionLevel: "M",
-          color: { dark: "#18181b", light: "#fafafa" },
+          color: { dark: "#070D1A", light: "#EAF3FF" },
         });
       })
       .then((u) => alive && setQr(u))

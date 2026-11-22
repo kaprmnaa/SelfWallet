@@ -4,33 +4,69 @@ import { explorerTx, type ChainConfig } from "../lib/chains";
 import { useSettings } from "../context/SettingsContext";
 import { shortAddr, timeAgo, trimAmount } from "../lib/format";
 import CoinIcon from "./CoinIcon";
+import type { HistorySyncState } from "../history/useHistorySync";
+import type { SyncState } from "../goals/sync";
 import { StatusDot, spring } from "./ui";
 
 const LABEL = { pending: "Menunggu", success: "Berhasil", failed: "Gagal" } as const;
 const TONE = { pending: "warn", success: "ok", failed: "bad" } as const;
 
-export default function HistoryPanel({ chain, address }: { chain: ChainConfig; address: string }) {
+function SyncLine({ status, h }: { status: SyncState["status"]; h: HistorySyncState }) {
+  if (status === "off") return null;
+  let tone: "ok" | "warn" | "bad" = "ok";
+  let text = "Tersimpan terenkripsi · terlihat di semua perangkat";
+  if (status === "signed-out") {
+    tone = "warn";
+    text = "Masuk di tab Goal agar riwayat tersimpan dan terlihat di perangkat lain";
+  } else if (status === "connecting" || h.status === "syncing" || h.status === "off") {
+    tone = "warn";
+    text = "Menyinkronkan…";
+  } else if (status === "error" || h.status === "error") {
+    tone = "bad";
+    text = h.message ?? "Sinkron riwayat gagal";
+  }
+  return (
+    <p className="mb-4 flex items-center gap-2 text-xs text-zinc-500" role="status">
+      <StatusDot tone={tone} still />
+      {text}
+    </p>
+  );
+}
+
+export default function HistoryPanel({
+  chain,
+  address,
+  syncStatus,
+  hsync,
+}: {
+  chain: ChainConfig;
+  address: string;
+  syncStatus: SyncState["status"];
+  hsync: HistorySyncState;
+}) {
   const { history } = useSettings();
   const items = history.filter((h) => h.chainId === chain.chainId && h.from === address);
 
   if (items.length === 0) {
     return (
+      <div>
+      <SyncLine status={syncStatus} h={hsync} />
       <div className="flex items-start gap-4 border-y border-white/[0.06] py-8">
         <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-white/10 text-zinc-500">
           <ClockCounterClockwise />
         </span>
         <div>
           <p className="text-sm text-zinc-200">Belum ada transaksi di {chain.name}</p>
-          <p className="mt-1 max-w-[60ch] text-sm leading-relaxed text-zinc-500">
-            Transaksi yang Anda kirim dari perangkat ini muncul di sini. Riwayat hanya menyimpan hash dan alamat
-            publik di browser, tanpa data rahasia.
-          </p>
+          <p className="mt-1 text-sm text-zinc-500">Transaksi yang Anda kirim muncul di sini.</p>
         </div>
+      </div>
       </div>
     );
   }
 
   return (
+    <div>
+    <SyncLine status={syncStatus} h={hsync} />
     <m.ul
       initial="hidden"
       animate="show"
@@ -73,5 +109,6 @@ export default function HistoryPanel({ chain, address }: { chain: ChainConfig; a
         </m.li>
       ))}
     </m.ul>
+    </div>
   );
 }

@@ -49,8 +49,22 @@ atau koin native, termasuk testnet untuk uji coba). Progres, grafik perjalanan, 
 - **Pengukuran:** koin native + token tersimpan (EVM) di jaringan terpilih. Polling tiap 30 detik saat tab terlihat; harga CoinGecko di-cache 5 menit,
   jadi ini *hampir realtime*, bukan streaming. Sinkron lintas perangkat memakai Supabase Realtime (jika diaktifkan).
 - **Tercapai** setelah target terbaca dua kali berturut-turut (menahan lonjakan sesaat). Status tercapai bersifat tetap.
-- **Penarikan dikunci:** selama goal aktif, aplikasi menolak kirim dan swap (termasuk approval) di jaringan itu untuk wallet itu. Dicek di panel
-  dan di semua fungsi penandatangan (`src/goals/guard.ts`).
+- **Mode Lock / Unlock per goal:**
+  - **Lock**: dana goal terkunci sampai target tercapai. **Unlock**: hanya pelacak progres, dananya tetap bebas ditarik.
+  - Tiap goal punya **dana** (alokasi dari saldo jaringan). Contoh: saldo 728$, goal "invest" Lock target 1000$ berdana 701$, goal "10 to 100" Unlock berdana 27$
+    -> terkunci 701$, **yang bisa ditarik hanya 27$** (728 - 701). Progres tiap goal = dananya, bukan total saldo.
+  - Dana kosong: goal Lock mengunci **seluruh** saldo jaringan (perilaku lama, dipakai goal yang dibuat sebelum fitur ini); goal Unlock memakai sisa saldo yang tidak terkunci.
+  - Dana goal Lock **hanya bisa ditambah**, tidak bisa dikurangi (itu akan jadi celah membuka kunci). Untuk membukanya lebih awal pakai pembatalan 24 jam.
+    Dana goal Unlock bebas naik/turun. Dana yang dialokasikan harus ada di saldo nyata, di luar dana yang sudah dikunci goal lain.
+  - Dicek di semua fungsi penandatangan (`src/goals/guard.ts`): kirim native/token (jumlah + biaya gas), swap, dan approval (jumlahnya).
+    Saldo dihitung dalam USD (native + token berharga) bila ada goal USD di jaringan itu, selain itu dalam koin native. Jika saldo/harga tidak bisa
+    diverifikasi saat ada dana terkunci, penarikan **ditolak** (gagal-aman). Token tanpa harga tidak bisa dikirim selama ada dana terkunci di pool USD.
+- **Kunci semua jaringan (waktu):** di tab Goal, isi angka + satuan (menit/jam/hari). Selama waktunya belum habis, SEMUA kirim, swap, dan approval di
+  SEMUA jaringan untuk wallet itu ditolak. Min 1 menit, maks 365 hari. Tidak bisa dibatalkan atau dipersingkat, hanya diperpanjang (setelah konfirmasi).
+  Memakai jam perangkat (mengubah jam perangkat bisa mengakalinya, seperti semua komitmen di dalam aplikasi ini).
+- **Riwayat tersinkron (terenkripsi):** setelah masuk (tab Goal), riwayat transaksi tersimpan di Supabase dan terlihat di perangkat mana pun yang membuka wallet
+  yang sama. Dienkripsi di perangkat (AES-GCM, kunci diturunkan dari private key): server hanya melihat ciphertext, penanda wallet, chain id, dan waktu.
+  Hash, alamat, jumlah, dan status tidak terbaca. Hanya pengiriman yang tercatat (swap belum). Jalankan ulang `supabase/schema.sql` untuk tabel `tx_history`.
 - **Pembatalan:** ajukan, tunggu 24 jam, lalu konfirmasi (bisa ditarik kembali). Ini gesekan sengaja terhadap keputusan impulsif.
 
 ### Batasan penting
@@ -61,7 +75,7 @@ desain, audit, dan penyimpanan dana di kontrak, bukan di wallet biasa ini.
 
 ## Sinkron Supabase (opsional)
 Tanpa Supabase, goal tersimpan lokal (localStorage) dan semuanya tetap berfungsi. Supabase menambah sinkron lintas perangkat dan cadangan.
-1. Buat proyek di supabase.com. SQL Editor: jalankan `supabase/schema.sql` (tabel, Row Level Security, Realtime).
+1. Buat proyek di supabase.com. SQL Editor: jalankan `supabase/schema.sql` (tabel, Row Level Security, Realtime). **Sudah punya proyek dari versi lama? Jalankan ulang file ini**: ia menambah kolom `mode`/`funded_value` dan tabel `wallet_locks`. Tanpa itu sinkron goal akan error.
 2. Authentication > Providers: aktifkan **Email**.
 3. Authentication > **URL Configuration**: isi **Site URL** dengan alamat situs Anda (mis. `https://situs-anda.netlify.app`) dan tambahkan juga ke
    **Redirect URLs** (plus `http://localhost:5173` untuk uji lokal). Tanpa ini tautan di email bisa mengarah ke `localhost:3000` dan gagal.
@@ -77,7 +91,7 @@ Tanpa Supabase, goal tersimpan lokal (localStorage) dan semuanya tetap berfungsi
 5. Salin Project URL dan anon/publishable key ke `.env` (lihat `.env.example`) atau Netlify > Environment variables, lalu deploy ulang.
 6. Di tab Goal: masukkan email, lalu kode dari email (atau klik tautannya).
 
-**Yang disimpan di Supabase:** nama goal, jaringan, satuan, nilai awal/target, status, dan snapshot nilai (USD/koin) dari waktu ke waktu, terkait akun email Anda.
+**Yang disimpan di Supabase:** nama goal, jaringan, satuan, mode (lock/unlock), dana, nilai awal/target, status, waktu berakhir kunci waktu (tabel `wallet_locks`), dan snapshot nilai (USD/koin) dari waktu ke waktu, terkait akun email Anda.
 **Tidak disimpan:** alamat wallet, kunci, recovery phrase, password. Goal ditautkan ke wallet lewat `wallet_ref`, HMAC yang hanya bisa dihitung pemilik wallet.
 Kunci anon aman berada di sisi klien karena akses dibatasi Row Level Security. Sesi login Supabase tersimpan di browser.
 

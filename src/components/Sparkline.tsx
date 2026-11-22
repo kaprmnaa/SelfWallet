@@ -27,8 +27,8 @@ export default function Sparkline({
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="h-[72px] w-full" role="img" aria-label="Grafik perjalanan menuju target">
       <line x1={P} x2={W - P} y1={y(target)} y2={y(target)} className="stroke-zinc-600" strokeDasharray="4 4" strokeWidth="1" />
-      <path d={d} fill="none" className="stroke-[#5fb396]" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={x(last.ts)} cy={y(last.value)} r="3" className="fill-[#5fb396]" />
+      <path d={d} fill="none" className="stroke-[#398BFF]" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={x(last.ts)} cy={y(last.value)} r="3" className="fill-[#27D8FF]" />
     </svg>
   );
 }

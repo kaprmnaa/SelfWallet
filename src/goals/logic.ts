@@ -1,4 +1,5 @@
-import type { Goal, GoalStatus, GoalUnit, Snapshot } from "./types";
+import { isLockMode } from "./allocation";
+import type { Goal, GoalMode, GoalStatus, GoalUnit, Snapshot } from "./types";
 
 /** Target harus terlihat tercapai pada 2 evaluasi berturut-turut (menahan lonjakan harga/saldo sesaat). */
 export const REQUIRED_HITS = 2;
@@ -50,11 +51,12 @@ export function confirmCancel(g: Goal, now = Date.now()): Goal {
   return { ...g, status: "cancelled", cancelRequestedAt: undefined, updatedAt: now };
 }
 
-/** Goal aktif yang mengunci penarikan untuk wallet + jaringan ini (null = tidak ada). */
+/** Goal aktif bermode lock untuk wallet + jaringan ini (null = tidak ada). Goal mode unlock tidak pernah memblokir. */
 export function blockingGoal(goals: Goal[], ref: string, chainId: number): Goal | null {
-  return goals.find((g) => g.status === "active" && g.ref === ref && g.chainId === chainId) ?? null;
+  return goals.find((g) => g.status === "active" && g.ref === ref && g.chainId === chainId && isLockMode(g)) ?? null;
 }
 
+/** Pesan untuk goal lock TANPA alokasi dana (mengunci seluruh saldo jaringan). */
 export function lockMessage(g: Pick<Goal, "name">): string {
   return `Penarikan dikunci oleh goal "${g.name}" yang belum tercapai. Selesaikan goal, atau ajukan pembatalan (masa tunggu 24 jam) di tab Goal.`;
 }
@@ -71,6 +73,9 @@ export function validateNewGoal(i: {
   usdSupported: boolean;
   start: number;
   target: number;
+  mode?: GoalMode;
+  /** undefined = tidak diisi. */
+  funded?: number;
 }): string {
   const name = i.name.replace(/\s+/g, " ").trim();
   if (name.length < 1 || name.length > 40) throw new Error("Nama goal harus 1 sampai 40 karakter.");
@@ -80,6 +85,8 @@ export function validateNewGoal(i: {
   if (!Number.isFinite(i.target) || i.target <= 0) throw new Error("Target harus lebih dari nol.");
   if (!Number.isFinite(i.start) || i.start < 0) throw new Error("Nilai awal tidak boleh negatif.");
   if (i.start >= i.target) throw new Error("Nilai awal harus lebih kecil dari target.");
+  if (i.mode !== undefined && i.mode !== "lock" && i.mode !== "unlock") throw new Error("Mode goal tidak valid.");
+  if (i.funded !== undefined && (!Number.isFinite(i.funded) || i.funded <= 0)) throw new Error("Dana goal harus lebih dari nol, atau kosongkan.");
   return name;
 }
 

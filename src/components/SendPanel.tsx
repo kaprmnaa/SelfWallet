@@ -7,7 +7,7 @@ import { useSettings } from "../context/SettingsContext";
 import { feeWei, maxNativeSend, prepare, signAndSend, type Prepared } from "../lib/tx";
 import { tokenBalance } from "../lib/tokens";
 import { errMsg, shortAddr, trimAmount } from "../lib/format";
-import { useGoalLock } from "../goals/useLock";
+import { useLockInfo } from "../goals/useLock";
 import GoalLockNotice from "./GoalLockNotice";
 import { Button, Field, Modal, Notice, StatusDot, inputCls } from "./ui";
 
@@ -34,7 +34,7 @@ export default function SendPanel({
   onSent: () => void;
 }) {
   const { tokens, history, addHistory } = useSettings();
-  const lock = useGoalLock(chain, account);
+  const lock = useLockInfo(chain, account);
   const [asset, setAsset] = useState("native");
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
@@ -110,7 +110,7 @@ export default function SendPanel({
 
   return (
     <div className="grid gap-6">
-      {lock && <GoalLockNotice goal={lock} />}
+      {lock.active && <GoalLockNotice info={lock} chain={chain} />}
       <form onSubmit={review} className="grid gap-5">
         <Field label="Aset">
           <select value={asset} onChange={(e) => { setAsset(e.target.value); setAmount(""); }} className={inputCls}>
@@ -147,7 +147,7 @@ export default function SendPanel({
             </Button>
           </div>
         </Field>
-        <Button type="submit" disabled={!to || !amount || !!lock} busy={preparing}>
+        <Button type="submit" disabled={!to || !amount || lock.blocked} busy={preparing}>
           {preparing ? "Menghitung biaya…" : "Tinjau transaksi"}
         </Button>
       </form>

@@ -22,7 +22,6 @@ import {
   suggestName,
   type SavedWallet,
 } from "../lib/vaultStore";
-import ChainTicker from "./ChainTicker";
 import WalletAvatar from "./WalletAvatar";
 import {
   Button,
@@ -44,85 +43,35 @@ const MODES: { key: Mode; label: string }[] = [
   { key: "import", label: "Impor" },
 ];
 
-const POINTS = [
-  "Keystore terenkripsi scrypt, tersimpan sebagai file di tangan Anda.",
-  "Kunci hanya hidup di memori tab ini dan terkunci otomatis setelah 5 menit tanpa aktivitas.",
-  "Mulai di testnet. Pindah ke mainnet hanya saat Anda siap.",
-];
-
 type DoneProps = { onDone?: () => void };
 
 export default function Onboarding() {
   const [mode, setMode] = useState<Mode>("unlock");
   return (
-    <main className="grid min-h-[100dvh] overflow-x-clip lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-      <section className="flex min-w-0 flex-col justify-between gap-16 px-6 py-10 sm:px-12 lg:px-20 lg:py-16">
-        <div className="flex items-center gap-3 text-zinc-50">
-          <span className="grid size-9 place-items-center rounded-xl border border-white/10 bg-zinc-900 text-accent">
+    <main className="grid min-h-[100dvh] place-items-center overflow-x-clip px-6 py-12">
+      <div className="glass-surface glass-rim w-full max-w-sm rounded-[2rem] p-7 sm:p-8">
+        <div className="mb-8 flex items-center gap-3 text-zinc-50">
+          <span className="glass grid size-9 place-items-center rounded-xl border border-white/10 text-accent">
             <Key />
           </span>
           <span className="text-lg font-medium tracking-tight">Kunci</span>
         </div>
-
-        <div className="max-w-[54ch]">
-          <m.h1
-            initial={{ opacity: 0, y: 16 }}
+        <Tabs items={MODES} value={mode} onChange={setMode} id="onboard" />
+        <AnimatePresence mode="wait">
+          <m.div
+            key={mode}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
             transition={spring}
-            className="text-4xl font-medium leading-none tracking-tighter text-zinc-50 md:text-5xl"
+            className="pt-8"
           >
-            Kunci privat tetap di perangkat Anda.
-          </m.h1>
-          <m.p
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ ...spring, delay: 0.08 }}
-            className="mt-6 max-w-[65ch] text-base leading-relaxed text-zinc-400"
-          >
-            Dompet self-custody multi-wallet untuk Bitcoin, Solana, Ethereum, BNB Smart Chain, Polygon, Base, dan
-            jaringan EVM kustom. Satu recovery phrase untuk semuanya. Server tidak pernah menerima recovery phrase,
-            private key, maupun password.
-          </m.p>
-          <m.ul
-            initial="hidden"
-            animate="show"
-            variants={{ hidden: {}, show: { transition: { staggerChildren: 0.1, delayChildren: 0.2 } } }}
-            className="mt-10 divide-y divide-white/[0.06] border-y border-white/[0.06]"
-          >
-            {POINTS.map((p) => (
-              <m.li
-                key={p}
-                variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: spring } }}
-                className="py-4 text-sm leading-relaxed text-zinc-300"
-              >
-                {p}
-              </m.li>
-            ))}
-          </m.ul>
-        </div>
-
-        <ChainTicker />
-      </section>
-
-      <section className="flex min-w-0 items-center border-t border-white/[0.06] px-6 py-12 sm:px-12 lg:border-l lg:border-t-0 lg:px-14">
-        <div className="w-full max-w-md">
-          <Tabs items={MODES} value={mode} onChange={setMode} id="onboard" />
-          <AnimatePresence mode="wait">
-            <m.div
-              key={mode}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={spring}
-              className="pt-8"
-            >
-              {mode === "unlock" && <UnlockForm />}
-              {mode === "create" && <CreateFlow />}
-              {mode === "import" && <ImportFlow />}
-            </m.div>
-          </AnimatePresence>
-        </div>
-      </section>
+            {mode === "unlock" && <UnlockForm />}
+            {mode === "create" && <CreateFlow />}
+            {mode === "import" && <ImportFlow />}
+          </m.div>
+        </AnimatePresence>
+      </div>
     </main>
   );
 }
@@ -139,7 +88,7 @@ function NameField({
   placeholder: string;
 }) {
   return (
-    <Field label="Nama wallet" hint="Contoh: Main A, Trading, Tabungan. Maksimal 24 karakter.">
+    <Field label="Nama">
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -214,8 +163,7 @@ export function UnlockForm({ onDone }: DoneProps) {
     <form onSubmit={submit} className="grid gap-5">
       {fromSaved ? (
         <div className="grid gap-2" role="radiogroup" aria-label="Wallet tersimpan di browser ini">
-          <p className="text-xs font-medium tracking-wide text-zinc-400">Wallet tersimpan di browser ini</p>
-          {saved.map((w) => {
+                    {saved.map((w) => {
             const on = w.id === selId;
             return (
               <button
@@ -242,10 +190,10 @@ export function UnlockForm({ onDone }: DoneProps) {
         </div>
       ) : (
         <>
-          <Field label="File keystore" hint="Berkas .json hasil backup dari wallet Anda." error={!json ? err : undefined}>
+          <Field label="Keystore" error={!json ? err : undefined}>
             <span className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-white/15 px-4 py-4 text-sm text-zinc-400 transition-colors duration-300 hover:border-accent/50 hover:text-zinc-200">
               <UploadSimple />
-              <span className="truncate">{fileName || "Pilih file keystore"}</span>
+              <span className="truncate">{fileName || "Pilih file .json"}</span>
               <input type="file" accept=".json,application/json" onChange={onFile} className="sr-only" />
             </span>
           </Field>
@@ -254,31 +202,25 @@ export function UnlockForm({ onDone }: DoneProps) {
               type="checkbox"
               checked={remember}
               onChange={(e) => setRemember(e.target.checked)}
-              className="mt-1 size-4 accent-[#5fb396]"
+              className="mt-1 size-4 accent-[#398BFF]"
             />
-            Ingat keystore terenkripsi di browser ini, sehingga setelah refresh cukup memasukkan password.
+            Ingat di browser ini
           </label>
         </>
       )}
-      <Field label={fromSaved ? `Password ${selected!.name}` : "Password vault"} error={activeJson ? err : undefined}>
+      <Field label="Password" error={activeJson ? err : undefined}>
         <input
           type="password"
           autoComplete="current-password"
           value={pw}
           onChange={(e) => setPw(e.target.value)}
           className={inputCls}
-          placeholder="Password saat keystore dibuat"
         />
       </Field>
-      {progress !== null && (
-        <div className="grid gap-2">
-          <ProgressBar value={progress} />
-          <span className="text-xs text-zinc-500">Mendekripsi di perangkat ini. Proses scrypt sengaja lambat.</span>
-        </div>
-      )}
+      {progress !== null && <ProgressBar value={progress} />}
       <Magnetic>
         <Button type="submit" disabled={!activeJson || !pw} busy={progress !== null} className="w-full">
-          {progress !== null ? "Membuka…" : "Buka dompet"}
+          {progress !== null ? "Membuka…" : "Buka"}
         </Button>
       </Magnetic>
       {saved.length > 0 && (
@@ -291,11 +233,11 @@ export function UnlockForm({ onDone }: DoneProps) {
             }}
             className="text-zinc-400 transition-colors duration-300 hover:text-zinc-100"
           >
-            {useFile ? "Pakai wallet tersimpan" : "Pakai file keystore lain"}
+            {useFile ? "Wallet tersimpan" : "File lain"}
           </button>
           {fromSaved && (
             <button type="button" onClick={forget} className="text-zinc-500 transition-colors duration-300 hover:text-rose-300">
-              Lupakan {selected!.name}
+              Lupakan
             </button>
           )}
         </div>
@@ -353,7 +295,7 @@ export function CreateFlow({ onDone }: DoneProps) {
   function verify(e: FormEvent) {
     e.preventDefault();
     const ok = idx.every((w, i) => answers[i].trim().toLowerCase() === words[w]);
-    if (!ok) return setErr("Ada kata yang tidak cocok. Periksa catatan Anda lalu coba lagi.");
+    if (!ok) return setErr("Ada kata yang tidak cocok.");
     setErr("");
     setStep("backup");
   }
@@ -362,7 +304,7 @@ export function CreateFlow({ onDone }: DoneProps) {
     return (
       <form onSubmit={start} className="grid gap-5">
         <NameField value={name} onChange={setName} placeholder={suggested} />
-        <Field label="Password vault" hint="Mengenkripsi file keystore. Tidak dikirim ke mana pun dan tidak bisa dipulihkan.">
+        <Field label="Password">
           <input type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} className={inputCls} />
         </Field>
         <PasswordMeter value={pw} />
@@ -371,7 +313,7 @@ export function CreateFlow({ onDone }: DoneProps) {
         </Field>
         <Magnetic>
           <Button type="submit" disabled={!pw || !pw2} className="w-full">
-            Buat wallet
+            Buat
           </Button>
         </Magnetic>
       </form>
@@ -382,13 +324,11 @@ export function CreateFlow({ onDone }: DoneProps) {
     return (
       <div className="grid gap-5">
         <div>
-          <h2 className="text-lg font-medium tracking-tight text-zinc-50">Recovery phrase {finalName}</h2>
-          <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-            Tulis 12 kata ini di kertas, sesuai urutan. Siapa pun yang memilikinya menguasai seluruh dana Anda.
-          </p>
+          <h2 className="text-lg font-medium tracking-tight text-zinc-50">Recovery phrase</h2>
+          <p className="mt-1 text-sm text-zinc-500">Tulis di kertas. Jangan difoto atau disimpan online.</p>
         </div>
         <ol
-          className={`grid grid-cols-2 gap-x-6 gap-y-3 rounded-2xl border border-white/10 p-5 font-mono text-sm text-zinc-100 transition-[filter] duration-500 sm:grid-cols-3 ${
+          className={`grid grid-cols-2 gap-x-6 gap-y-3 glass-field rounded-2xl border border-white/10 p-5 font-mono text-sm text-zinc-100 transition-[filter] duration-500 sm:grid-cols-3 ${
             shown ? "" : "select-none blur-md"
           }`}
           aria-hidden={!shown}
@@ -404,12 +344,8 @@ export function CreateFlow({ onDone }: DoneProps) {
           {shown ? <EyeSlash /> : <Eye />}
           {shown ? "Sembunyikan" : "Tampilkan"}
         </Button>
-        <Notice>
-          Jangan screenshot, jangan simpan di cloud, catatan, atau chat. Tidak ada yang berhak memintanya, termasuk
-          aplikasi ini.
-        </Notice>
         <Button onClick={toVerify} disabled={!shown}>
-          Saya sudah menulisnya
+          Sudah saya tulis
         </Button>
       </div>
     );
@@ -418,12 +354,9 @@ export function CreateFlow({ onDone }: DoneProps) {
   if (step === "verify") {
     return (
       <form onSubmit={verify} className="grid gap-5">
-        <div>
-          <h2 className="text-lg font-medium tracking-tight text-zinc-50">Verifikasi catatan</h2>
-          <p className="mt-2 text-sm leading-relaxed text-zinc-400">Isi tiga kata berikut dari kertas Anda.</p>
-        </div>
+        <h2 className="text-lg font-medium tracking-tight text-zinc-50">Verifikasi</h2>
         {idx.map((w, i) => (
-          <Field key={w} label={`Kata nomor ${w + 1}`} error={i === idx.length - 1 ? err : undefined}>
+          <Field key={w} label={`Kata ${w + 1}`} error={i === idx.length - 1 ? err : undefined}>
             <input
               value={answers[i]}
               onChange={(e) => setAnswers((a) => a.map((x, j) => (j === i ? e.target.value : x)))}
@@ -527,10 +460,7 @@ export function ImportFlow({ onDone }: DoneProps) {
           </button>
         ))}
       </div>
-      <Field
-        label={kind === "phrase" ? "Recovery phrase" : "Private key"}
-        hint={kind === "phrase" ? "12 sampai 24 kata, dipisah spasi. Akun pertama (indeks 0) yang diimpor." : "64 karakter heksadesimal, dengan atau tanpa 0x."}
-      >
+      <Field label={kind === "phrase" ? "Recovery phrase" : "Private key"}>
         {kind === "phrase" ? (
           <textarea
             rows={3}
@@ -552,7 +482,7 @@ export function ImportFlow({ onDone }: DoneProps) {
           />
         )}
       </Field>
-      <Field label="Password vault baru" hint="Dipakai untuk mengenkripsi keystore dari akun yang diimpor.">
+      <Field label="Password baru">
         <input type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} className={inputCls} />
       </Field>
       <PasswordMeter value={pw} />
@@ -561,7 +491,7 @@ export function ImportFlow({ onDone }: DoneProps) {
       </Field>
       <Magnetic>
         <Button type="submit" disabled={!secret.trim() || !pw || !pw2} className="w-full">
-          Impor dan enkripsi
+          Impor
         </Button>
       </Magnetic>
     </form>
@@ -605,13 +535,7 @@ function BackupStep({
 
   return (
     <div className="grid gap-5">
-      <div>
-        <h2 className="text-lg font-medium tracking-tight text-zinc-50">Backup keystore {name}</h2>
-        <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-          File ini adalah satu-satunya salinan terenkripsi dompet Anda di perangkat. Simpan di tempat terpisah dari
-          recovery phrase.
-        </p>
-      </div>
+      <h2 className="text-lg font-medium tracking-tight text-zinc-50">Backup keystore</h2>
 
       {err ? (
         <Notice>
@@ -619,13 +543,10 @@ function BackupStep({
           {err}
         </Notice>
       ) : !json ? (
-        <div className="grid gap-2">
-          <ProgressBar value={progress} />
-          <span className="text-xs text-zinc-500">Mengenkripsi dengan scrypt, mohon tunggu.</span>
-        </div>
+        <ProgressBar value={progress} />
       ) : (
         <>
-          <p className="break-all rounded-xl border border-white/10 px-4 py-3 font-mono text-xs text-zinc-300">
+          <p className="glass-field break-all rounded-xl border border-white/10 px-4 py-3 font-mono text-xs text-zinc-300">
             {account.address}
           </p>
           <Button variant="ghost" onClick={download}>
@@ -637,18 +558,18 @@ function BackupStep({
               type="checkbox"
               checked={ack}
               onChange={(e) => setAck(e.target.checked)}
-              className="mt-1 size-4 accent-[#5fb396]"
+              className="mt-1 size-4 accent-[#398BFF]"
             />
-            Saya sudah menyimpan keystore dan mengerti bahwa password tidak bisa dipulihkan.
+            Keystore sudah saya simpan. Password tidak bisa dipulihkan.
           </label>
           <label className="flex items-start gap-3 text-sm text-zinc-400">
             <input
               type="checkbox"
               checked={remember}
               onChange={(e) => setRemember(e.target.checked)}
-              className="mt-1 size-4 accent-[#5fb396]"
+              className="mt-1 size-4 accent-[#398BFF]"
             />
-            Ingat keystore terenkripsi di browser ini, sehingga setelah refresh cukup memasukkan password.
+            Ingat di browser ini
           </label>
           <Button
             onClick={() => {
@@ -657,7 +578,7 @@ function BackupStep({
             }}
             disabled={!saved || !ack}
           >
-            Masuk ke dompet
+            Masuk
           </Button>
         </>
       )}

@@ -72,7 +72,7 @@ export default function WalletSwitcher() {
           aria-haspopup="listbox"
           aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
-          className="group flex w-full items-center gap-3 rounded-xl border border-white/10 bg-zinc-900/60 py-2 pl-2.5 pr-3 text-left transition-[transform,background-color,border-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-white/20 hover:bg-zinc-900 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:w-auto"
+          className="group flex w-full items-center gap-3 glass rounded-xl border border-white/10 py-2 pl-2.5 pr-3 text-left transition-[transform,background-color,border-color,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-white/20 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:w-auto"
         >
           <WalletAvatar seed={activeId ?? "x"} label={name} size={24} />
           <span className="grid min-w-0 flex-1 leading-tight">

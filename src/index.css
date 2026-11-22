@@ -7,7 +7,7 @@
 }
 
 html {
-  background: #09090b;
+  background: #070D1A; /* Midnight */
 }
 
 /* Jaring pengaman: tidak pernah ada scroll horizontal di halaman. */
@@ -28,7 +28,7 @@ body {
 }
 
 body {
-  @apply bg-zinc-950 font-sans text-zinc-400 antialiased;
+  @apply font-sans text-zinc-400 antialiased;
   margin: 0;
 }
 
@@ -43,13 +43,13 @@ body::after {
 }
 
 ::selection {
-  background: rgba(95, 179, 150, 0.3);
-  color: #fafafa;
+  background: rgba(57, 139, 255, 0.35);
+  color: #EAF3FF;
 }
 
 select option {
-  background: #18181b;
-  color: #e4e4e7;
+  background: #111D33;
+  color: #EAF3FF;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -86,4 +86,203 @@ html {
 /* Mode "Add to Home Screen": sisakan area aman di bawah (indikator beranda iPhone). */
 body {
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ====================================================================
+ * Liquid glass (gaya iOS 26): permukaan translusen, tepi spekular,
+ * kilau miring, dan latar ambient yang "dibiaskan" oleh kaca.
+ * ==================================================================== */
+
+/*
+ * Latar ambient: orb Electric Blue / Neon Cyan / Royal Blue di atas Midnight.
+ * Tanpa kabut warna ini kaca tidak punya apa-apa untuk dibiaskan. Statis (murah untuk GPU);
+ * hanya di desktop layer-nya bergeser sangat pelan.
+ */
+body {
+  background: transparent;
+  position: relative;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: -15%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(42% 38% at 14% 8%, rgba(57, 139, 255, 0.38), transparent 70%),
+    radial-gradient(36% 32% at 88% 14%, rgba(39, 216, 255, 0.2), transparent 70%),
+    radial-gradient(46% 42% at 72% 96%, rgba(36, 87, 214, 0.42), transparent 70%),
+    radial-gradient(34% 30% at 6% 82%, rgba(146, 112, 255, 0.14), transparent 70%),
+    linear-gradient(180deg, #0B1730 0%, #070D1A 60%);
+}
+@media (min-width: 1024px) and (hover: hover) and (prefers-reduced-motion: no-preference) {
+  body::before {
+    animation: ambient-drift 48s ease-in-out infinite alternate;
+  }
+  @keyframes ambient-drift {
+    from {
+      transform: translate3d(-1.5%, -1%, 0) scale(1);
+    }
+    to {
+      transform: translate3d(1.5%, 1.2%, 0) scale(1.04);
+    }
+  }
+}
+
+@layer components {
+  /* Kaca untuk elemen kecil (tombol, tab, input, chip): fill + blur + tepi spekular. */
+  .glass,
+  .glass-surface {
+    background-image: linear-gradient(135deg, rgba(234, 243, 255, 0.13) 0%, rgba(234, 243, 255, 0.045) 42%, rgba(39, 216, 255, 0.05) 100%);
+    box-shadow:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.26),
+      inset -1px -1px 0 rgba(255, 255, 255, 0.07),
+      inset 0 0 24px rgba(101, 181, 255, 0.07),
+      0 14px 34px -16px rgba(0, 0, 0, 0.65);
+  }
+  .glass {
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
+    backdrop-filter: blur(18px) saturate(180%);
+  }
+  /*
+   * Kaca untuk wadah besar (header, panel, kartu onboarding): SENGAJA tanpa backdrop-filter.
+   * backdrop-filter pada induk menjadikannya containing block bagi anak position:fixed, sehingga
+   * popover bottom-sheet dan modal di dalamnya bergeser. Di atas latar ambient yang halus,
+   * hasilnya tetap terlihat seperti kaca.
+   */
+  .glass-surface {
+    background-color: rgba(17, 29, 51, 0.38);
+  }
+
+  /* Kaca untuk overlay (modal, popover): lebih pekat, blur kuat. Hanya dipasang pada elemen yang tidak punya anak fixed. */
+  .glass-strong {
+    background-color: rgba(17, 29, 51, 0.62);
+    background-image: linear-gradient(145deg, rgba(234, 243, 255, 0.16) 0%, rgba(234, 243, 255, 0.05) 45%, rgba(57, 139, 255, 0.08) 100%);
+    -webkit-backdrop-filter: blur(34px) saturate(190%);
+    backdrop-filter: blur(34px) saturate(190%);
+    box-shadow:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.3),
+      inset -1px -1px 0 rgba(255, 255, 255, 0.08),
+      inset 0 0 40px rgba(101, 181, 255, 0.08),
+      0 32px 70px -24px rgba(0, 0, 0, 0.75),
+      0 0 0 1px rgba(184, 231, 255, 0.08);
+  }
+
+  /* Tepi spekular bergradien + kilau miring (hanya untuk elemen yang tidak bisa di-scroll). */
+  .glass-rim {
+    position: relative;
+  }
+  .glass-rim::before,
+  .glass-rim::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+  .glass-rim::before {
+    padding: 1px;
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.08) 32%, rgba(39, 216, 255, 0.1) 62%, rgba(255, 255, 255, 0.28));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  }
+  .glass-rim::after {
+    background: radial-gradient(120% 70% at 18% 0%, rgba(255, 255, 255, 0.12), transparent 55%);
+    mix-blend-mode: overlay;
+  }
+
+  /* Kolom input: "cekung" di dalam kaca. */
+  .glass-field {
+    background-color: rgba(7, 13, 26, 0.42);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    box-shadow:
+      inset 0 2px 4px rgba(0, 0, 0, 0.35),
+      inset 0 0 0 1px rgba(184, 231, 255, 0.06),
+      0 1px 0 rgba(255, 255, 255, 0.07);
+  }
+  .glass-field:focus {
+    border-color: #398bff;
+    box-shadow:
+      inset 0 2px 4px rgba(0, 0, 0, 0.3),
+      0 0 0 3px rgba(57, 139, 255, 0.25),
+      0 0 22px rgba(39, 216, 255, 0.18);
+  }
+
+  /* Tombol utama: kaca biru (Electric Blue -> Royal Blue) dengan kilau atas dan glow. */
+  .btn-primary {
+    color: #fff;
+    text-shadow: 0 1px 1px rgba(7, 13, 26, 0.35);
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0) 48%), linear-gradient(180deg, #398bff 0%, #2457d6 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      inset 0 -1px 0 rgba(7, 13, 26, 0.25),
+      0 10px 24px -10px rgba(57, 139, 255, 0.75);
+  }
+  .btn-primary:hover {
+    filter: brightness(1.1) saturate(1.1);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.6),
+      inset 0 -1px 0 rgba(7, 13, 26, 0.25),
+      0 12px 30px -8px rgba(39, 216, 255, 0.55);
+  }
+
+  /* Lensa tab aktif (segmented control ala iOS 26): kaca biru bertepi terang. */
+  .glass-lens {
+    background-image: linear-gradient(180deg, rgba(101, 181, 255, 0.42) 0%, rgba(36, 87, 214, 0.34) 100%);
+    -webkit-backdrop-filter: blur(8px) saturate(170%);
+    backdrop-filter: blur(8px) saturate(170%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.1),
+      0 0 0 1px rgba(184, 231, 255, 0.16),
+      0 6px 18px -6px rgba(39, 216, 255, 0.45);
+  }
+
+  button.glass:hover,
+  a.glass:hover {
+    background-image: linear-gradient(135deg, rgba(234, 243, 255, 0.2) 0%, rgba(234, 243, 255, 0.08) 42%, rgba(39, 216, 255, 0.08) 100%);
+  }
+}
+
+/* Tanpa dukungan backdrop-filter: pakai fill pekat supaya tetap terbaca. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass,
+  .glass-field,
+  .glass-lens {
+    background-color: rgba(17, 29, 51, 0.92);
+  }
+  .glass-strong {
+    background-color: rgba(11, 23, 48, 0.97);
+  }
+}
+
+/* HP: blur lebih ringan (hemat GPU dan baterai). */
+@media (hover: none) {
+  .glass {
+    -webkit-backdrop-filter: blur(12px) saturate(170%);
+    backdrop-filter: blur(12px) saturate(170%);
+  }
+  .glass-strong {
+    -webkit-backdrop-filter: blur(22px) saturate(180%);
+    backdrop-filter: blur(22px) saturate(180%);
+  }
+}
+
+/* Preferensi sistem: kurangi transparansi -> kaca jadi pekat. */
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-surface,
+  .glass-field,
+  .glass-lens {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-color: #111d33;
+  }
+  .glass-strong {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-color: #0b1730;
+  }
 }

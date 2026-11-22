@@ -1,6 +1,6 @@
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
-import { getGoals, getSnapshots, mergeRemoteGoals, mergeRemoteSnapshots, onLocalChange } from "./store";
-import type { Goal, Snapshot } from "./types";
+import { getGoals, getSnapshots, getTimeLocks, mergeRemoteGoals, mergeRemoteSnapshots, mergeRemoteTimeLocks, onLocalChange } from "./store";
+import type { Goal, Snapshot, TimeLock } from "./types";
 
 // Sinkron OPSIONAL lintas perangkat lewat Supabase (lokal-dulu: aplikasi tetap bekerja tanpa ini).
 // supabase-js dimuat malas (dynamic import) supaya tidak membebani pemuatan awal di HP.
@@ -15,7 +15,7 @@ export type SyncState = {
 };
 
 let clientP: Promise<SupabaseClient> | null = null;
-function client(): Promise<SupabaseClient> {
+export function client(): Promise<SupabaseClient> {
   if (!syncConfigured) return Promise.reject(new Error("Supabase belum dikonfigurasi."));
   clientP ??= import("@supabase/supabase-js").then((m) =>
     m.createClient(URL!, KEY!, {
@@ -96,7 +96,26 @@ const toRow = (g: Goal) => ({
   achieved_at: g.achievedAt ? iso(g.achievedAt) : null,
   cancel_requested_at: g.cancelRequestedAt ? iso(g.cancelRequestedAt) : null,
   updated_at: iso(g.updatedAt),
+  mode: g.mode ?? "lock",
+  funded_value: g.funded ?? null,
 });
+
+const lockToRow = (l: TimeLock) => ({
+  wallet_ref: l.ref,
+  locked_until: iso(l.until),
+  created_at: iso(l.createdAt),
+  updated_at: iso(l.updatedAt),
+});
+
+function lockFromRow(r: Record<string, unknown> | null | undefined): TimeLock | null {
+  if (!r || typeof r.wallet_ref !== "string") return null;
+  const ms = (x: unknown) => (typeof x === "string" ? Date.parse(x) : NaN);
+  const until = ms(r.locked_until);
+  if (!Number.isFinite(until)) return null;
+  const created = ms(r.created_at);
+  const updated = ms(r.updated_at);
+  return { ref: r.wallet_ref, until, createdAt: Number.isFinite(created) ? created : until, updatedAt: Number.isFinite(updated) ? updated : until };
+}
 
 /** Data dari jaringan diperlakukan tidak tepercaya: bentuk dicek ketat. */
 function fromRow(r: Record<string, unknown> | null | undefined): Goal | null {
@@ -134,6 +153,9 @@ function fromRow(r: Record<string, unknown> | null | undefined): Goal | null {
     updatedAt: ms(r.updated_at),
     achievedAt: Number.isFinite(achieved) ? achieved : undefined,
     cancelRequestedAt: Number.isFinite(cancelReq) ? cancelReq : undefined,
+    // Nilai tak dikenal diperlakukan "lock" (arah yang aman). Dana kosong/tidak valid = seluruh saldo jaringan.
+    mode: r.mode === "unlock" ? "unlock" : "lock",
+    funded: r.funded_value != null && num(r.funded_value) > 0 ? num(r.funded_value) : undefined,
   };
 }
 
@@ -167,6 +189,24 @@ export function startSync(userId: string, onState: (s: SyncState) => void, email
         if (e2) throw new Error(e2.message);
       }
 
+      // 1b) kunci waktu: yang berakhir paling akhir menang; dorong yang lokalnya lebih panjang. Dipisah agar tabel
+      //     yang belum dimigrasi tidak mematikan sinkron goal.
+      let lockErr = "";
+      try {
+        const { data: ld, error: le } = await sb.from("wallet_locks").select("*");
+        if (le) throw new Error(le.message);
+        const remoteLocks: TimeLock[] = (ld ?? []).map((r) => lockFromRow(r as Record<string, unknown>)).filter((l): l is TimeLock => !!l);
+        mergeRemoteTimeLocks(remoteLocks);
+        const rm = new Map(remoteLocks.map((l) => [l.ref, l]));
+        const pushLocks = getTimeLocks().filter((l) => l.until > (rm.get(l.ref)?.until ?? 0));
+        if (pushLocks.length > 0) {
+          const { error: le2 } = await sb.from("wallet_locks").upsert(pushLocks.map(lockToRow), { onConflict: "user_id,wallet_ref" });
+          if (le2) throw new Error(le2.message);
+        }
+      } catch (e) {
+        lockErr = `Sinkron kunci waktu gagal: ${e instanceof Error ? e.message : "galat"}. Jalankan ulang supabase/schema.sql.`;
+      }
+
       // 2) snapshot: tarik yang ada, dorong yang hanya ada di lokal
       const ids = getGoals().map((g) => g.id);
       if (ids.length > 0) {
@@ -197,13 +237,20 @@ export function startSync(userId: string, onState: (s: SyncState) => void, email
           const g = fromRow(payload.new as Record<string, unknown>);
           if (g) mergeRemoteGoals([g]);
         })
+        .on("postgres_changes", { event: "*", schema: "public", table: "wallet_locks", filter: `user_id=eq.${userId}` }, (payload) => {
+          const l = lockFromRow(payload.new as Record<string, unknown>);
+          if (l) mergeRemoteTimeLocks([l]);
+        })
         .subscribe();
 
       // 4) dorong setiap perubahan lokal berikutnya
       unhook = onLocalChange(async (c) => {
         try {
           if (!sb) return;
-          if (c.kind === "goal") {
+          if (c.kind === "timelock") {
+            const { error: e } = await sb.from("wallet_locks").upsert(lockToRow(c.item), { onConflict: "user_id,wallet_ref" });
+            if (e) throw new Error(e.message);
+          } else if (c.kind === "goal") {
             const { error: e } = await sb.from("goals").upsert(toRow(c.item));
             if (e) throw new Error(e.message);
           } else {
@@ -214,7 +261,7 @@ export function startSync(userId: string, onState: (s: SyncState) => void, email
           onState({ status: "error", email, message: e instanceof Error ? e.message : "Gagal menyinkronkan." });
         }
       });
-      onState({ status: "online", email });
+      onState(lockErr ? { status: "error", email, message: lockErr } : { status: "online", email });
     } catch (e) {
       if (!stopped) onState({ status: "error", email, message: e instanceof Error ? e.message : "Sinkron gagal." });
     }

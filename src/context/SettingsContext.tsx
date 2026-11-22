@@ -15,6 +15,8 @@ export type HistoryItem = {
   status: "pending" | "success" | "failed";
 };
 
+const HISTORY_CAP = 300;
+
 type Prefs = { chainId: number; testMode: boolean };
 const DEFAULT_PREFS: Prefs = { chainId: 11155111, testMode: true }; // default ke testnet
 
@@ -36,6 +38,8 @@ type Ctx = {
   history: HistoryItem[];
   addHistory: (h: HistoryItem) => void;
   setHistoryStatus: (hash: string, status: HistoryItem["status"]) => void;
+  /** Gabungkan riwayat dari perangkat lain: tambah yang belum ada, naikkan pending -> final. */
+  mergeHistory: (items: HistoryItem[]) => void;
 };
 
 const SettingsCtx = createContext<Ctx | null>(null);
@@ -141,7 +145,26 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     [chain.chainId],
   );
 
-  const addHistory = useCallback((h: HistoryItem) => setHistory((l) => [h, ...l].slice(0, 100)), []);
+  const addHistory = useCallback((h: HistoryItem) => setHistory((l) => [h, ...l].slice(0, HISTORY_CAP)), []);
+  const mergeHistory = useCallback((items: HistoryItem[]) => {
+    if (items.length === 0) return;
+    setHistory((l: HistoryItem[]) => {
+      const map = new Map<string, HistoryItem>(l.map((x) => [`${x.chainId}:${x.hash}`, x]));
+      let changed = false;
+      for (const r of items) {
+        const k = `${r.chainId}:${r.hash}`;
+        const cur = map.get(k);
+        if (!cur) {
+          map.set(k, r);
+          changed = true;
+        } else if (cur.status === "pending" && r.status !== "pending") {
+          map.set(k, { ...cur, status: r.status });
+          changed = true;
+        }
+      }
+      return changed ? [...map.values()].sort((a: HistoryItem, b: HistoryItem) => b.ts - a.ts).slice(0, HISTORY_CAP) : l;
+    });
+  }, []);
   const setHistoryStatus = useCallback(
     (hash: string, status: HistoryItem["status"]) =>
       setHistory((l) => l.map((x) => (x.hash === hash ? { ...x, status } : x))),
@@ -166,8 +189,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       history,
       addHistory,
       setHistoryStatus,
+      mergeHistory,
     }),
-    [chain, prefs.testMode, setChainId, setTestMode, chains, addCustomChain, removeCustomChain, endpoints, setEndpoint, tokens, tokenMap, addToken, removeToken, history, addHistory, setHistoryStatus],
+    [chain, prefs.testMode, setChainId, setTestMode, chains, addCustomChain, removeCustomChain, endpoints, setEndpoint, tokens, tokenMap, addToken, removeToken, history, addHistory, setHistoryStatus, mergeHistory],
   );
   return <SettingsCtx.Provider value={value}>{children}</SettingsCtx.Provider>;
 }

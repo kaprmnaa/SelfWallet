@@ -9,6 +9,11 @@ import {
   progress, evaluate, cancelInfo, requestCancel, revokeCancel, confirmCancel, blockingGoal, lockMessage,
   shouldSnapshot, validateNewGoal, mergeGoal, CANCEL_COOLDOWN_MS, SNAPSHOT_MIN_INTERVAL_MS,
 } from "../src/goals/logic";
+import {
+  allocate, checkWithdrawal, outgoingValue, setFunded, modeOf, isLockMode, lockGoals, poolCurrency,
+} from "../src/goals/allocation";
+import { parseItem } from "../src/history/crypto";
+import { durationMs, planTimeLock, activeTimeLock, mergeTimeLock, formatRemaining } from "../src/goals/timelock";
 import type { Goal } from "../src/goals/types";
 import { missingWindow, hintCandidates } from "../src/chains/bitcoin/gap";
 import { explainError, hostOf } from "../src/lib/explain";
@@ -235,6 +240,72 @@ ok("merge: status akhir menang atas aktif walau lebih lama", mergeGoal(act, ach)
 ok("merge: status akhir lokal tidak ditimpa remote aktif", mergeGoal(ach, act).status === "achieved");
 ok("merge: sama-sama aktif, yang terbaru menang", mergeGoal(G({ updatedAt: 1, name: "a" }), G({ updatedAt: 2, name: "b" })).name === "b");
 ok("merge: tanpa data lokal memakai remote", mergeGoal(undefined, act) === act);
+
+/* ------------------------------------------- Mode lock/unlock + kunci waktu */
+const POOL = (total: number, currency: "usd" | "native" = "usd", nativeUsd: number | null = 2000) => ({ total, currency, nativeUsd });
+const invest = G({ id: "inv", name: "invest", target: 1000, start: 0, mode: "lock", funded: 701, createdAt: 1 });
+const run100 = G({ id: "r100", name: "10 to 100", target: 100, start: 10, mode: "unlock", funded: 27, createdAt: 2 });
+
+const alloc = allocate([invest, run100], POOL(728));
+ok("alokasi: contoh 728$ -> terkunci 701$", alloc.locked === 701);
+ok("alokasi: contoh 728$ -> bisa ditarik hanya 27$", alloc.free === 27);
+ok("alokasi: nilai goal = dana masing-masing (701 dan 27)", alloc.values.inv === 701 && alloc.values.r100 === 27);
+ok("tarik: 27$ boleh", checkWithdrawal(alloc, 27).ok);
+ok("tarik: 27.01$ ditolak", !checkWithdrawal(alloc, 27.01).ok);
+ok("tarik: 100$ ditolak (parsial)", (() => { const v = checkWithdrawal(alloc, 100); return !v.ok && v.reason === "partial" && v.free === 27; })());
+ok("alokasi: hanya goal unlock -> semua bebas", allocate([run100], POOL(728)).free === 728);
+ok("alokasi: goal unlock tidak pernah membatasi", checkWithdrawal(allocate([run100], POOL(728)), 728).ok);
+ok("alokasi: goal tercapai tidak lagi mengunci", allocate([{ ...invest, status: "achieved" }, run100], POOL(728)).free === 728);
+ok("alokasi: saldo turun -> terkunci dibatasi saldo nyata", (() => { const a = allocate([invest], POOL(500)); return a.locked === 500 && a.free === 0; })());
+ok("alokasi: goal unlock hanya dapat sisa yang bebas", allocate([invest, G({ id: "u", mode: "unlock", funded: 100, createdAt: 3 })], POOL(750)).values.u === 49);
+ok("alokasi: lock tanpa dana (goal lama) mengunci seluruh jaringan", (() => { const a = allocate([G()], POOL(50)); return a.wholeLocked && a.free === 0 && !checkWithdrawal(a, 0.0001).ok; })());
+ok("alokasi: goal tanpa mode = lock (kompatibel)", modeOf(G()) === "lock" && isLockMode(G()));
+ok("alokasi: unlock tanpa dana memakai sisa saldo bebas", allocate([invest, G({ id: "w", mode: "unlock", createdAt: 3 })], POOL(728)).values.w === 27);
+ok("alokasi: goal native di pool USD dikonversi (0.1 ETH x 2000 = 200$)", (() => { const a = allocate([G({ unit: "native", mode: "lock", funded: 0.1, target: 1 })], POOL(1000)); return a.locked === 200 && a.free === 800 && Math.abs(a.values.g1 - 0.1) < 1e-12; })());
+ok("alokasi: pool native (testnet)", (() => { const a = allocate([G({ unit: "native", mode: "lock", funded: 0.4, target: 1 })], POOL(1, "native", null)); return a.locked === 0.4 && Math.abs(a.free - 0.6) < 1e-12; })());
+ok("alokasi: goal native di pool USD tanpa harga -> galat", (() => { try { allocate([G({ unit: "native", funded: 1 })], POOL(10, "usd", null)); return false; } catch { return true; } })());
+ok("alokasi: mata uang pool USD jika ada goal USD", poolCurrency([G(), G({ unit: "native" })]) === "usd" && poolCurrency([G({ unit: "native" })]) === "native");
+
+const outEth = { native: 0.01 };
+ok("keluar: native di pool USD bernilai x harga", outgoingValue(outEth, POOL(728), {}) === 20);
+ok("keluar: token memakai harga token", outgoingValue({ token: { address: "0xAbC", amount: 25 } }, POOL(728), { "0xabc": 1 }) === 25);
+ok("keluar: token + gas dijumlahkan", outgoingValue({ native: 0.001, token: { address: "0xabc", amount: 25 } }, POOL(728), { "0xabc": 1 }) === 27);
+ok("keluar: token tanpa harga di pool USD ditolak", (() => { try { outgoingValue({ token: { address: "0xabc", amount: 1 } }, POOL(728), {}); return false; } catch { return true; } })());
+ok("keluar: pool native mengabaikan token (hanya gas native)", outgoingValue({ native: 0.001, token: { address: "0xabc", amount: 999 } }, POOL(1, "native", null), {}) === 0.001);
+
+ok("dana: lock bisa ditambah", setFunded(invest, 800, 9).funded === 800);
+ok("dana: lock tidak bisa dikurangi (celah membuka kunci)", (() => { try { setFunded(invest, 100); return false; } catch { return true; } })());
+ok("dana: lock tanpa dana tidak bisa diberi alokasi", (() => { try { setFunded(G(), 10); return false; } catch { return true; } })());
+ok("dana: unlock bebas naik/turun", setFunded(run100, 5).funded === 5 && setFunded(run100, 90).funded === 90);
+ok("dana: harus > 0 dan goal aktif", (() => { try { setFunded(run100, 0); return false; } catch { return true; } })() && (() => { try { setFunded({ ...run100, status: "achieved" }, 5); return false; } catch { return true; } })());
+ok("kunci: blockingGoal mengabaikan goal unlock", blockingGoal([run100], "refA", 8453) === null && blockingGoal([invest], "refA", 8453)?.id === "inv");
+ok("kunci: lockGoals hanya yang lock aktif", lockGoals([invest, run100, { ...invest, id: "x", status: "cancelled" }], "refA", 8453).length === 1);
+ok("validasi: mode & dana dicek", (() => { try { validateNewGoal({ ...vOk, funded: -1 }); return false; } catch { return true; } })() && (() => { try { validateNewGoal({ ...vOk, funded: 5, mode: "unlock" }); return true; } catch { return false; } })());
+
+const T0 = 1_000_000;
+ok("waktu: 5 menit/2 jam/3 hari", durationMs(5, "minute") === 300_000 && durationMs(2, "hour") === 7_200_000 && durationMs(3, "day") === 259_200_000);
+ok("waktu: desimal 1.5 jam", durationMs(1.5, "hour") === 5_400_000);
+ok("waktu: kurang dari 1 menit / nol / negatif / >365 hari ditolak", [0.5, 0, -1, 366].every((v, i) => { try { durationMs(v, i === 0 ? "minute" : i === 3 ? "day" : "hour"); return false; } catch { return true; } }));
+const tl = planTimeLock(undefined, "refA", 2, "hour", T0);
+ok("waktu: kunci berakhir sekarang + durasi", tl.until === T0 + 7_200_000);
+ok("waktu: aktif sebelum habis, tidak aktif setelahnya", activeTimeLock([tl], "refA", T0 + 7_199_999) !== null && activeTimeLock([tl], "refA", T0 + 7_200_000) === null);
+ok("waktu: wallet lain tidak terkunci", activeTimeLock([tl], "refB", T0) === null);
+ok("waktu: tidak bisa diperpendek saat aktif", (() => { try { planTimeLock(tl, "refA", 30, "minute", T0 + 1000); return false; } catch { return true; } })());
+ok("waktu: bisa diperpanjang", planTimeLock(tl, "refA", 1, "day", T0 + 1000).until === T0 + 1000 + 86_400_000);
+ok("waktu: setelah habis boleh kunci pendek lagi", planTimeLock(tl, "refA", 5, "minute", T0 + 8_000_000).until === T0 + 8_000_000 + 300_000);
+ok("waktu: merge memilih yang berakhir paling akhir", mergeTimeLock(tl, { ...tl, until: tl.until + 5 }).until === tl.until + 5 && mergeTimeLock(tl, { ...tl, until: tl.until - 5 }) === tl);
+ok("waktu: format sisa", formatRemaining(90_061_000) === "1 hari 1 jam 2 menit" && formatRemaining(30_000) === "1 menit");
+
+/* ------------------------------------------------- Riwayat: validasi data server */
+const HI = { hash: "0xabc123def", chainId: 56, from: "0xF00", to: "0xBA5", amount: "0.00032147", symbol: "BNB", ts: 1700000000000, status: "success" };
+ok("riwayat: item valid diterima", parseItem(HI)?.hash === "0xabc123def");
+ok("riwayat: field tak dikenal dibuang", !("evil" in (parseItem({ ...HI, evil: "x" }) ?? {})));
+ok("riwayat: status asing ditolak", parseItem({ ...HI, status: "hacked" }) === null);
+ok("riwayat: hash berisi karakter aneh ditolak (anti URL explorer palsu)", parseItem({ ...HI, hash: "0xab/../../evil" }) === null && parseItem({ ...HI, hash: "0xab?x=1" }) === null);
+ok("riwayat: jumlah non-numerik ditolak", parseItem({ ...HI, amount: "1e999<script>" }) === null);
+ok("riwayat: string kepanjangan ditolak", parseItem({ ...HI, to: "x".repeat(101) }) === null);
+ok("riwayat: bukan objek ditolak", parseItem(null) === null && parseItem("x") === null && parseItem(42) === null);
+ok("riwayat: chainId/ts tidak valid ditolak", parseItem({ ...HI, chainId: 1.5 }) === null && parseItem({ ...HI, ts: NaN }) === null);
 
 laneTest().then(() => {
   console.log(`\n${pass} lolos, ${fail} gagal`);

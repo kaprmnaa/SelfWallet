@@ -7,7 +7,9 @@ import { errMsg } from "../lib/format";
 import { evaluate, shouldSnapshot } from "./logic";
 import { walletRef } from "./ref";
 import { addSnapshot, getGoals, getSnapshots, upsertGoal, useGoals } from "./store";
-import { measure } from "./valuation";
+import { allocate, poolCurrency } from "./allocation";
+import { clearSummary, setSummary, summaryKeysFor } from "./summary";
+import { measurePool } from "./valuation";
 import type { Goal } from "./types";
 
 export type GoalLive = { value: number; unpriced: number; at: number } | { error: string; at: number };
@@ -27,37 +29,52 @@ export function useGoalEngine(account: Account, chains: ChainConfig[], allTokens
     if (running.current) return;
     running.current = true;
     try {
-      const groups = new Map<string, Goal[]>();
+      // Satu pengukuran per jaringan (pool), lalu dibagi ke semua goal aktif jaringan itu.
+      const groups = new Map<number, Goal[]>();
       for (const g of getGoals().filter((x) => x.ref === ref && x.status === "active")) {
-        const k = `${g.chainId}:${g.unit}`;
-        groups.set(k, [...(groups.get(k) ?? []), g]);
+        groups.set(g.chainId, [...(groups.get(g.chainId) ?? []), g]);
       }
-      for (const list of groups.values()) {
-        const chain = chains.find((c) => c.chainId === list[0].chainId);
-        const now = Date.now();
+      for (const [chainId, list] of groups) {
+        const chain = chains.find((c) => c.chainId === chainId);
+        const fail = (msg: string) =>
+          setLive((p) => ({ ...p, ...Object.fromEntries(list.map((g) => [g.id, { error: msg, at: Date.now() }])) }));
         if (!chain) {
-          setLive((p) => ({ ...p, ...Object.fromEntries(list.map((g) => [g.id, { error: "Jaringan tidak ditemukan.", at: now }])) }));
+          fail("Jaringan tidak ditemukan.");
           continue;
         }
         try {
-          const m = await measure(chain, account, allTokens, list[0].unit);
+          const pool = await measurePool(chain, account, allTokens, poolCurrency(list));
           const at = Date.now();
+          const alloc = allocate(list, pool);
           for (const g of list) {
             const cur = getGoals().find((x) => x.id === g.id);
             if (!cur || cur.status !== "active") continue;
-            const next = evaluate(cur, m.value, at);
+            const value = alloc.values[g.id] ?? 0;
+            const next = evaluate(cur, value, at);
             if (next !== cur) upsertGoal(next, next.status !== cur.status); // hits = lokal-saja
             const last = getSnapshots()
               .filter((s) => s.goalId === g.id)
               .at(-1);
-            if (shouldSnapshot(last, m.value, g.target, at)) addSnapshot({ goalId: g.id, ts: at, value: m.value });
+            if (shouldSnapshot(last, value, g.target, at)) addSnapshot({ goalId: g.id, ts: at, value });
           }
-          setLive((p) => ({ ...p, ...Object.fromEntries(list.map((g) => [g.id, { value: m.value, unpriced: m.unpriced, at }])) }));
+          setSummary(ref, chainId, {
+            total: alloc.total,
+            locked: alloc.locked,
+            free: alloc.free,
+            currency: alloc.currency,
+            wholeLocked: alloc.wholeLocked,
+            at,
+          });
+          setLive((p) => ({
+            ...p,
+            ...Object.fromEntries(list.map((g) => [g.id, { value: alloc.values[g.id] ?? 0, unpriced: pool.unpriced, at }])),
+          }));
         } catch (e) {
-          const msg = errMsg(e);
-          setLive((p) => ({ ...p, ...Object.fromEntries(list.map((g) => [g.id, { error: msg, at: Date.now() }])) }));
+          fail(errMsg(e));
         }
       }
+      // Jaringan yang tidak punya goal aktif lagi: hapus ringkasannya.
+      for (const id of summaryKeysFor(ref)) if (!groups.has(id)) clearSummary(ref, id);
     } finally {
       running.current = false;
     }

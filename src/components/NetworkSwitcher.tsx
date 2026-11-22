@@ -57,7 +57,7 @@ export default function NetworkSwitcher() {
           aria-haspopup="listbox"
           aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
-          className="group flex w-full items-center gap-3 rounded-xl border border-white/10 bg-zinc-900/60 py-2 pl-2.5 pr-3 text-left transition-[transform,background-color,border-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-white/20 hover:bg-zinc-900 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:w-auto"
+          className="group flex w-full items-center gap-3 glass rounded-xl border border-white/10 py-2 pl-2.5 pr-3 text-left transition-[transform,background-color,border-color,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-white/20 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:w-auto"
         >
           <CoinIcon symbol={chain.symbol} size={24} />
           <span className="grid min-w-0 flex-1 leading-tight">
@@ -89,7 +89,7 @@ export default function NetworkSwitcher() {
               <div
                 role="group"
                 aria-label="Mode jaringan"
-                className="relative grid grid-cols-2 rounded-xl bg-zinc-950/70 p-1 text-xs"
+                className="glass-field relative grid grid-cols-2 rounded-xl p-1 text-xs"
               >
                 {[true, false].map((isTest) => (
                   <button
@@ -105,7 +105,7 @@ export default function NetworkSwitcher() {
                       <m.span
                         layoutId="mode-pill"
                         transition={spring}
-                        className="absolute inset-0 rounded-[10px] bg-white/10"
+                        className="glass-lens absolute inset-0 rounded-[10px]"
                       />
                     )}
                     <span className="relative">{isTest ? "Testnet" : "Mainnet"}</span>

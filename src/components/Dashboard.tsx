@@ -15,6 +15,7 @@ import { useSwapTracker } from "../swap/tracker";
 import { useGoalEngine } from "../goals/engine";
 import { useSync } from "../goals/useSync";
 import type { Account } from "../lib/vault";
+import { useHistorySync } from "../history/useHistorySync";
 import ChainPulse from "./ChainPulse";
 import NetworkSwitcher from "./NetworkSwitcher";
 import WalletSwitcher from "./WalletSwitcher";
@@ -73,6 +74,7 @@ export default function Dashboard({ account }: { account: Account }) {
   // Goal: pantau progres (polling 30 dtk saat tab terlihat) dan sinkron Supabase opsional.
   const engine = useGoalEngine(account, chains, allTokens);
   const sync = useSync();
+  const hsync = useHistorySync(account, owner, sync.state.status === "online");
 
   // Pantau swap yang sedang berjalan (tahan restart: status tersimpan di browser).
   useSwapTracker(chains, () => {
@@ -113,9 +115,10 @@ export default function Dashboard({ account }: { account: Account }) {
         </div>
       )}
 
-      <header className="mx-auto grid max-w-[1400px] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-4 px-6 py-5 sm:flex sm:px-10">
+      <div className="px-4 pt-4 sm:px-8 sm:pt-6">
+      <header className="glass-surface glass-rim mx-auto grid max-w-[1400px] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-4 rounded-[1.75rem] px-5 py-4 sm:flex sm:px-6">
         <div className="flex items-center gap-3 text-zinc-50">
-          <span className="grid size-9 place-items-center rounded-xl border border-white/10 bg-zinc-900 text-accent">
+          <span className="glass grid size-9 place-items-center rounded-xl border border-white/10 text-accent">
             <Key />
           </span>
           <span className="text-lg font-medium tracking-tight">Kunci</span>
@@ -129,9 +132,10 @@ export default function Dashboard({ account }: { account: Account }) {
           <NetworkSwitcher />
         </div>
       </header>
+      </div>
 
-      <main className="mx-auto grid max-w-[1400px] gap-x-20 gap-y-14 px-6 pb-24 pt-8 sm:px-10 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] lg:pt-14">
-        <section className="min-w-0">
+      <main className="mx-auto grid max-w-[1400px] gap-6 px-4 pb-24 pt-6 sm:px-8 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] lg:items-start">
+        <section className="glass-surface glass-rim min-w-0 rounded-[2rem] p-6 sm:p-9">
           <div className="mb-12">
             <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
               Total aset · {testMode ? "semua testnet" : "semua mainnet"}
@@ -247,14 +251,14 @@ export default function Dashboard({ account }: { account: Account }) {
                       <ReceivePanel address={address} chain={chain} />
                     ))}
                   {activeTab === "token" && <TokensPanel chain={chain} owner={account.address} />}
-                  {activeTab === "riwayat" && (owner ? <HistoryPanel chain={chain} address={owner} /> : <PanelSkeleton />)}
+                  {activeTab === "riwayat" && (owner ? <HistoryPanel chain={chain} address={owner} syncStatus={sync.state.status} hsync={hsync} /> : <PanelSkeleton />)}
                 </Suspense>
               </m.div>
             </AnimatePresence>
           </div>
         </section>
 
-        <aside className="min-w-0 divide-y divide-white/[0.06] border-t border-white/[0.06] lg:border-l lg:border-t-0 lg:pl-12">
+        <aside className="glass-surface glass-rim min-w-0 divide-y divide-white/[0.06] rounded-[2rem] p-6 sm:p-9">
           <div className="pb-8 lg:pt-1">
             <p className="truncate text-xs uppercase tracking-[0.14em] text-zinc-500">Akun · {walletName}</p>
             {address ? (

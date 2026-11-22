@@ -6,7 +6,7 @@ import type { Account } from "../lib/vault";
 import { useSettings } from "../context/SettingsContext";
 import { prepareSol, signAndSendSol, type SolPrepared } from "../chains/solana/transfer";
 import { errMsg } from "../lib/format";
-import { useGoalLock } from "../goals/useLock";
+import { useLockInfo } from "../goals/useLock";
 import GoalLockNotice from "./GoalLockNotice";
 import { Button, DetailRow, Field, Modal, Notice, StatusDot, inputCls } from "./ui";
 
@@ -24,7 +24,7 @@ export default function SolSendPanel({
   onSent: () => void;
 }) {
   const { history, addHistory } = useSettings();
-  const lock = useGoalLock(chain, account);
+  const lock = useLockInfo(chain, account);
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
   const [max, setMax] = useState(false);
@@ -91,7 +91,7 @@ export default function SolSendPanel({
 
   return (
     <div className="grid gap-6">
-      {lock && <GoalLockNotice goal={lock} />}
+      {lock.active && <GoalLockNotice info={lock} chain={chain} />}
       <form onSubmit={review} className="grid gap-5">
         <Field label="Alamat penerima" hint="Alamat Solana (Base58, 32 byte).">
           <input
@@ -119,7 +119,7 @@ export default function SolSendPanel({
             </Button>
           </div>
         </Field>
-        <Button type="submit" disabled={!to || (!max && !amount) || !!lock} busy={preparing}>
+        <Button type="submit" disabled={!to || (!max && !amount) || lock.blocked} busy={preparing}>
           {preparing ? "Menyiapkan transaksi…" : "Tinjau transaksi"}
         </Button>
       </form>

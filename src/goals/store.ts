@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from "react";
 import { load, save } from "../lib/storage";
 import { mergeGoal } from "./logic";
-import type { Goal, Snapshot } from "./types";
+import { mergeTimeLock } from "./timelock";
+import type { Goal, Snapshot, TimeLock } from "./types";
 
 // Penyimpanan LOKAL-DULU (localStorage): goal dan snapshot adalah metadata non-rahasia.
 // Sinkron Supabase bersifat opsional dan hanya menyalin data ini.
@@ -18,7 +19,9 @@ const isGoal = (g: unknown): g is Goal => {
     Number.isFinite(o.target) &&
     (o.status === "active" || o.status === "achieved" || o.status === "cancelled") &&
     typeof o.createdAt === "number" &&
-    typeof o.updatedAt === "number"
+    typeof o.updatedAt === "number" &&
+    (o.mode === undefined || o.mode === "lock" || o.mode === "unlock") &&
+    (o.funded === undefined || (Number.isFinite(o.funded) && o.funded > 0))
   );
 };
 const isSnap = (s: unknown): s is Snapshot => {
@@ -26,13 +29,20 @@ const isSnap = (s: unknown): s is Snapshot => {
   return !!o && typeof o.goalId === "string" && typeof o.ts === "number" && Number.isFinite(o.value);
 };
 
+const isTimeLock = (t: unknown): t is TimeLock => {
+  const o = t as TimeLock;
+  return !!o && typeof o.ref === "string" && Number.isFinite(o.until) && typeof o.createdAt === "number" && typeof o.updatedAt === "number";
+};
+
 const rawGoals = load<unknown>("goals", []);
+const rawLocks = load<unknown>("timelocks", []);
 const rawSnaps = load<unknown>("goal-snaps", []);
 let goals: Goal[] = Array.isArray(rawGoals) ? rawGoals.filter(isGoal) : [];
 let snaps: Snapshot[] = Array.isArray(rawSnaps) ? rawSnaps.filter(isSnap) : [];
+let timeLocks: TimeLock[] = Array.isArray(rawLocks) ? rawLocks.filter(isTimeLock) : [];
 
 const listeners = new Set<() => void>();
-type Change = { kind: "goal"; item: Goal } | { kind: "snapshot"; item: Snapshot };
+type Change = { kind: "goal"; item: Goal } | { kind: "snapshot"; item: Snapshot } | { kind: "timelock"; item: TimeLock };
 const changeHooks = new Set<(c: Change) => void>();
 
 const emit = () => listeners.forEach((l) => l());
@@ -43,6 +53,8 @@ const subscribe = (cb: () => void) => {
 
 export const getGoals = () => goals;
 export const getSnapshots = () => snaps;
+export const getTimeLocks = () => timeLocks;
+export const useTimeLocks = () => useSyncExternalStore(subscribe, getTimeLocks, getTimeLocks);
 export const useGoals = () => useSyncExternalStore(subscribe, getGoals, getGoals);
 export const useAllSnapshots = () => useSyncExternalStore(subscribe, getSnapshots, getSnapshots);
 
@@ -104,4 +116,29 @@ export function mergeRemoteSnapshots(remote: Snapshot[]) {
   snaps = trim([...snaps, ...fresh]);
   save("goal-snaps", snaps);
   emit();
+}
+
+/** Pasang/perpanjang kunci waktu. Pemanggil bertanggung jawab memakai planTimeLock (aturan tidak boleh memendek). */
+export function upsertTimeLock(l: TimeLock, push = true) {
+  const i = timeLocks.findIndex((x) => x.ref === l.ref);
+  timeLocks = i >= 0 ? timeLocks.map((x, k) => (k === i ? l : x)) : [l, ...timeLocks];
+  save("timelocks", timeLocks);
+  emit();
+  if (push) changeHooks.forEach((h) => h({ kind: "timelock", item: l }));
+}
+
+export function mergeRemoteTimeLocks(remote: TimeLock[]) {
+  let changed = false;
+  for (const r of remote) {
+    const local = timeLocks.find((x) => x.ref === r.ref);
+    const merged = mergeTimeLock(local, r);
+    if (merged !== local) {
+      timeLocks = local ? timeLocks.map((x) => (x.ref === r.ref ? merged : x)) : [merged, ...timeLocks];
+      changed = true;
+    }
+  }
+  if (changed) {
+    save("timelocks", timeLocks);
+    emit();
+  }
 }

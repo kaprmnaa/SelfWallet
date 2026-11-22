@@ -15,7 +15,7 @@ import { passwordStrength } from "../lib/vault";
 export const spring = { type: "spring", stiffness: 100, damping: 20 } as const;
 
 export const inputCls =
-  "w-full rounded-xl border border-white/10 bg-zinc-900/60 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none transition-colors duration-300 focus:border-accent/60 disabled:opacity-50";
+  "glass-field w-full rounded-xl border border-white/10 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none transition-[border-color,box-shadow] duration-300 disabled:opacity-50";
 
 /** Satu standar ikon untuk seluruh aplikasi (Phosphor, weight regular). */
 export function IconProvider({ children }: { children: ReactNode }) {
@@ -29,16 +29,16 @@ type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 
 export function Button({ variant = "primary", busy, className = "", disabled, children, ...rest }: BtnProps) {
   const variants = {
-    primary: "bg-accent text-zinc-950 hover:bg-accent-hi",
-    ghost: "border border-white/10 text-zinc-200 hover:bg-white/5",
-    danger: "border border-rose-400/30 text-rose-300 hover:bg-rose-400/10",
+    primary: "btn-primary",
+    ghost: "glass border border-white/10 text-zinc-200",
+    danger: "glass border border-rose-400/30 bg-rose-400/[0.06] text-rose-300",
   } as const;
   return (
     <button
       {...rest}
       disabled={disabled || busy}
       aria-busy={busy || undefined}
-      className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition-[transform,background-color,opacity] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] active:-translate-y-[1px] active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${variants[variant]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition-[transform,background-color,opacity,filter,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] active:-translate-y-[1px] active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${variants[variant]} ${className}`}
     >
       {children}
     </button>
@@ -184,25 +184,37 @@ export function Tabs<T extends string>({
   onChange: (k: T) => void;
   id: string;
 }) {
+  const scroller = useRef<HTMLDivElement>(null);
+  // Tab aktif selalu terlihat penuh di HP (daftar tab bisa digulir).
+  useEffect(() => {
+    const el = scroller.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    el?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+  }, [value]);
+
+  // Pembungkus luar statis (tepi kaca tidak ikut tergulung); hanya bagian dalam yang bisa digulir.
   return (
-    <div role="tablist" className="flex border-b border-white/[0.06] sm:gap-7">
-      {items.map((it) => (
-        <button
-          key={it.key}
-          role="tab"
-          type="button"
-          aria-selected={value === it.key}
-          onClick={() => onChange(it.key)}
-          className={`relative flex-1 whitespace-nowrap pb-3 text-center text-[12px] transition-colors duration-300 min-[400px]:text-[13px] sm:flex-none sm:text-sm ${
-            value === it.key ? "text-zinc-50" : "text-zinc-500 hover:text-zinc-300"
-          }`}
-        >
-          {it.label}
-          {value === it.key && (
-            <m.span layoutId={`${id}-underline`} transition={spring} className="absolute inset-x-0 -bottom-px h-px bg-accent" />
-          )}
-        </button>
-      ))}
+    <div className="glass glass-rim rounded-full border border-white/10 p-1">
+      <div
+        ref={scroller}
+        role="tablist"
+        className="flex gap-1 overflow-x-auto overscroll-x-contain rounded-full [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {items.map((it) => (
+          <button
+            key={it.key}
+            role="tab"
+            type="button"
+            aria-selected={value === it.key}
+            onClick={() => onChange(it.key)}
+            className={`relative flex-1 shrink-0 whitespace-nowrap rounded-full px-3.5 py-2 text-center text-[13px] transition-colors duration-300 sm:px-4 sm:text-sm ${
+              value === it.key ? "text-zinc-50" : "text-zinc-500 hover:text-zinc-200"
+            }`}
+          >
+            {value === it.key && <m.span layoutId={`${id}-lens`} transition={spring} className="glass-lens absolute inset-0 rounded-full" />}
+            <span className="relative">{it.label}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -231,7 +243,7 @@ export function Modal({
     <AnimatePresence>
       {open && (
         <m.div
-          className="fixed inset-0 z-40 grid place-items-end bg-zinc-950/70 p-4 sm:place-items-center sm:backdrop-blur-sm"
+          className="fixed inset-0 z-40 grid place-items-end bg-zinc-950/55 p-4 sm:place-items-center sm:backdrop-blur-sm"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -246,7 +258,7 @@ export function Modal({
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 16, opacity: 0, scale: 0.98 }}
             transition={spring}
-            className="relative max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-[2rem] border border-white/10 bg-zinc-900 p-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_30px_60px_-20px_rgba(0,0,0,0.6)]"
+            className="glass-strong relative max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-[2rem] p-7"
           >
             <h2 className="text-lg font-medium tracking-tight text-zinc-50">{title}</h2>
             <div className="mt-5">{children}</div>
@@ -260,19 +272,19 @@ export function Modal({
 export function Notice({ tone = "warn", children }: { tone?: "warn" | "info"; children: ReactNode }) {
   const cls =
     tone === "warn"
-      ? "border-amber-400/25 bg-amber-400/[0.06] text-amber-200/90"
-      : "border-white/10 bg-white/[0.03] text-zinc-400";
-  return <div className={`rounded-xl border px-4 py-3 text-xs leading-relaxed ${cls}`}>{children}</div>;
+      ? "border-amber-400/25 bg-amber-400/[0.07] text-amber-200/90"
+      : "border-white/10 text-zinc-400";
+  return <div className={`glass rounded-xl border px-4 py-3 text-xs leading-relaxed ${cls}`}>{children}</div>;
 }
 
 /** Menu pop-up: bottom sheet di HP (tidak pernah terpotong), dropdown di layar lebar. */
 export const popoverCls =
-  "fixed inset-x-3 bottom-3 z-30 max-h-[75dvh] overflow-y-auto rounded-2xl border border-white/10 bg-zinc-900 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_48px_-16px_rgba(0,0,0,0.7)] sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-full sm:mt-2 sm:max-h-[min(70dvh,34rem)] sm:w-80";
+  "glass-strong fixed inset-x-3 bottom-3 z-30 max-h-[75dvh] overflow-y-auto rounded-2xl p-2 sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-full sm:mt-2 sm:max-h-[min(70dvh,34rem)] sm:w-80";
 
 export function PopoverScrim({ onClick }: { onClick: () => void }) {
   return (
     <m.div
-      className="fixed inset-0 z-20 bg-zinc-950/60 sm:hidden"
+      className="fixed inset-0 z-20 bg-zinc-950/50 sm:hidden"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}

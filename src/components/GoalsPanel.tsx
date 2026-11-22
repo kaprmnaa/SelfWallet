@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Lock, Target } from "@phosphor-icons/react";
+import { Lock, LockOpen, Target, Timer } from "@phosphor-icons/react";
 import { useSettings } from "../context/SettingsContext";
 import { hasNativePrice } from "../lib/prices";
 import { fmtUsd } from "../lib/portfolio";
@@ -7,9 +7,12 @@ import { errMsg, timeAgo, trimAmount } from "../lib/format";
 import type { ChainConfig } from "../lib/chains";
 import type { Account } from "../lib/vault";
 import { walletRef } from "../goals/ref";
-import { upsertGoal, useAllSnapshots, useGoals } from "../goals/store";
+import { upsertGoal, upsertTimeLock, useAllSnapshots, useGoals, useTimeLocks } from "../goals/store";
+import { isLockMode, modeOf, setFunded } from "../goals/allocation";
+import { verifyFunding } from "../goals/fund";
+import { UNIT_LABEL, activeTimeLock, formatRemaining, planTimeLock, type TimeUnit } from "../goals/timelock";
 import { cancelInfo, confirmCancel, progress, requestCancel, revokeCancel, validateNewGoal } from "../goals/logic";
-import type { Goal, GoalUnit } from "../goals/types";
+import type { Goal, GoalMode, GoalUnit } from "../goals/types";
 import type { GoalEngine } from "../goals/engine";
 import type { SyncApi } from "../goals/useSync";
 import CoinIcon from "./CoinIcon";
@@ -33,12 +36,14 @@ export default function GoalsPanel({ account, chain, engine, sync }: Props) {
   return (
     <div className="grid gap-8">
       <Notice>
-        Goal adalah <span className="text-amber-100">komitmen di dalam aplikasi</span>, bukan penguncian kriptografis. Selama goal aktif,
-        aplikasi ini menolak kirim dan swap di jaringan terkait. Kunci privat tetap milik Anda: wallet lain tetap bisa menarik dana.
+        Goal dan kunci waktu adalah <span className="text-amber-100">komitmen di dalam aplikasi</span>, bukan penguncian kriptografis.
+        Goal <b>Lock</b> mengunci dananya sampai target tercapai (hanya dana yang tidak terkunci yang bisa ditarik); goal <b>Unlock</b> tidak
+        mengunci apa pun. Kunci privat tetap milik Anda: wallet lain tetap bisa menarik dana.
       </Notice>
 
       <SyncCard sync={sync} />
-      <CreateGoal account={account} chain={chain} chains={chains} engine={engine} />
+      <TimeLockCard account={account} />
+      <CreateGoal account={account} chain={chain} chains={chains} engine={engine} goals={goals} />
 
       <section>
         <h3 className="text-xs uppercase tracking-[0.14em] text-zinc-500">Perjalanan Anda</h3>
@@ -58,6 +63,8 @@ export default function GoalsPanel({ account, chain, engine, sync }: Props) {
               <GoalCard
                 key={g.id}
                 g={g}
+                account={account}
+                allGoals={goals}
                 chain={chains.find((c) => c.chainId === g.chainId)}
                 live={engine.live[g.id]}
                 points={snaps.filter((s) => s.goalId === g.id)}
@@ -91,7 +98,7 @@ function SyncCard({ sync }: { sync: SyncApi }) {
 
   if (st.status === "online" || st.status === "connecting" || st.status === "error") {
     return (
-      <div className="grid gap-2 rounded-xl border border-white/10 px-4 py-3">
+      <div className="grid gap-2 glass-surface rounded-xl border border-white/10 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <span className="flex min-w-0 items-center gap-2 text-sm text-zinc-300">
             <StatusDot tone={st.status === "online" ? "ok" : st.status === "error" ? "bad" : "warn"} still={st.status !== "connecting"} />
@@ -138,7 +145,7 @@ function SyncCard({ sync }: { sync: SyncApi }) {
   }
 
   return (
-    <form onSubmit={step === "email" ? send : verify} className="grid gap-4 rounded-xl border border-white/10 p-4">
+    <form onSubmit={step === "email" ? send : verify} className="grid gap-4 glass-surface rounded-xl border border-white/10 p-4">
       <p className="text-sm text-zinc-300">Sinkron goal lintas perangkat (opsional)</p>
       {step === "email" ? (
         <Field label="Email" hint="Hanya untuk masuk. Alamat wallet Anda tidak dikirim." error={err}>
@@ -171,7 +178,11 @@ function SyncCard({ sync }: { sync: SyncApi }) {
 
 /* ------------------------------------------------------------ Buat goal */
 
-function CreateGoal({ account, chain, chains, engine }: { account: Account; chain: ChainConfig; chains: ChainConfig[]; engine: GoalEngine }) {
+function CreateGoal({ account, chain, chains, engine, goals }: { account: Account; chain: ChainConfig; chains: ChainConfig[]; engine: GoalEngine; goals: Goal[] }) {
+  const { allTokens } = useSettings();
+  const [mode, setMode] = useState<GoalMode>("lock");
+  const [funded, setFundedText] = useState("");
+  const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
   const [chainId, setChainId] = useState(chain.chainId);
   const [unit, setUnit] = useState<GoalUnit>("native");
@@ -183,15 +194,17 @@ function CreateGoal({ account, chain, chains, engine }: { account: Account; chai
   const usdOk = !sel.testnet && hasNativePrice(sel.chainId);
   useEffect(() => setUnit(usdOk ? "usd" : "native"), [usdOk, chainId]);
 
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     setErr("");
+    setBusy(true);
     try {
       const startN = start.trim() === "" ? 0 : num(start);
       const targetN = num(target);
-      const clean = validateNewGoal({ name, unit, usdSupported: usdOk, start: startN, target: targetN });
+      const fundedN = funded.trim() === "" ? undefined : num(funded);
+      const clean = validateNewGoal({ name, unit, usdSupported: usdOk, start: startN, target: targetN, mode, funded: fundedN });
       const now = Date.now();
-      upsertGoal({
+      const goal: Goal = {
         id: crypto.randomUUID(),
         ref: walletRef(account),
         name: clean,
@@ -202,13 +215,20 @@ function CreateGoal({ account, chain, chains, engine }: { account: Account; chai
         status: "active",
         createdAt: now,
         updatedAt: now,
-      });
+        mode,
+        funded: fundedN,
+      };
+      await verifyFunding(account, sel, allTokens, goals, goal);
+      upsertGoal(goal);
       setName("");
       setStart("");
       setTarget("");
+      setFundedText("");
       void engine.refresh();
     } catch (ex) {
       setErr(errMsg(ex));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -230,7 +250,7 @@ function CreateGoal({ account, chain, chains, engine }: { account: Account; chai
           </select>
         </Field>
         <Field label="Satuan" hint={usdOk ? undefined : "USD hanya untuk mainnet bawaan"}>
-          <div className="grid grid-cols-2 gap-1 rounded-xl border border-white/10 p-0.5 text-xs" role="group" aria-label="Satuan target">
+          <div className="grid grid-cols-2 glass-field gap-1 rounded-xl border border-white/10 p-0.5 text-xs" role="group" aria-label="Satuan target">
             {(["usd", "native"] as const).map((u) => (
               <button
                 key={u}
@@ -238,7 +258,7 @@ function CreateGoal({ account, chain, chains, engine }: { account: Account; chai
                 aria-pressed={unit === u}
                 disabled={u === "usd" && !usdOk}
                 onClick={() => setUnit(u)}
-                className={`rounded-[10px] px-2 py-2.5 transition-colors duration-300 disabled:opacity-30 ${unit === u ? "bg-white/10 text-zinc-50" : "text-zinc-500 hover:text-zinc-300"}`}
+                className={`rounded-[10px] px-2 py-2.5 transition-colors duration-300 disabled:opacity-30 ${unit === u ? "glass-lens text-zinc-50" : "text-zinc-500 hover:text-zinc-300"}`}
               >
                 {u === "usd" ? "USD" : sel.symbol}
               </button>
@@ -254,12 +274,38 @@ function CreateGoal({ account, chain, chains, engine }: { account: Account; chai
           <input value={target} onChange={(e) => setTarget(e.target.value)} inputMode="decimal" placeholder="100" className={`${inputCls} font-mono`} />
         </Field>
       </div>
-      <Button type="submit" disabled={!name.trim() || !target.trim()}>
+      <Field label="Mode" hint={mode === "lock" ? "Dana goal terkunci sampai target tercapai." : "Hanya pelacak progres: dana tetap bebas ditarik."}>
+        <div className="grid grid-cols-2 glass-field gap-1 rounded-xl border border-white/10 p-0.5 text-xs" role="group" aria-label="Mode goal">
+          {(["lock", "unlock"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              aria-pressed={mode === m}
+              onClick={() => setMode(m)}
+              className={`flex items-center justify-center gap-1.5 rounded-[10px] px-2 py-2.5 transition-colors duration-300 ${mode === m ? "glass-lens text-zinc-50" : "text-zinc-500 hover:text-zinc-300"}`}
+            >
+              {m === "lock" ? <Lock /> : <LockOpen />}
+              {m === "lock" ? "Lock" : "Unlock"}
+            </button>
+          ))}
+        </div>
+      </Field>
+      <Field
+        label={`Dana untuk goal ini (${unit === "usd" ? "USD" : sel.symbol}, opsional)`}
+        hint={
+          mode === "lock"
+            ? "Hanya jumlah ini yang terkunci. Kosong = SELURUH saldo jaringan terkunci."
+            : "Saldo awal goal ini. Kosong = seluruh saldo yang tidak dikunci goal lain."
+        }
+      >
+        <input value={funded} onChange={(e) => setFundedText(e.target.value)} inputMode="decimal" placeholder="mis. 701" className={`${inputCls} font-mono`} />
+      </Field>
+      <Button type="submit" busy={busy} disabled={!name.trim() || !target.trim()}>
         Buat goal
       </Button>
       <p className="text-xs leading-relaxed text-zinc-600">
-        Yang dihitung: koin native{sel.kind === undefined || sel.kind === "evm" ? " + token tersimpan" : ""} di jaringan ini. Setelah dibuat,
-        penarikan di jaringan itu dikunci sampai target tercapai (dua pembacaan berturut-turut).
+        Yang dihitung: koin native{sel.kind === undefined || sel.kind === "evm" ? " + token tersimpan (pool USD)" : ""} di jaringan ini. Goal
+        tercapai setelah dua pembacaan berturut-turut. Contoh: saldo 728$, goal Lock 701$ + goal Unlock 27$ = yang bisa ditarik hanya 27$.
       </p>
     </form>
   );
@@ -274,11 +320,15 @@ function remaining(ms: number) {
 
 function GoalCard({
   g,
+  account,
+  allGoals,
   chain,
   live,
   points,
 }: {
   g: Goal;
+  account: Account;
+  allGoals: Goal[];
   chain: ChainConfig | undefined;
   live: GoalEngine["live"][string] | undefined;
   points: { ts: number; value: number }[];
@@ -314,6 +364,10 @@ function GoalCard({
             {chain && <CoinIcon symbol={chain.symbol} size={16} />}
             {chain?.name ?? `Jaringan ${g.chainId}`} · {g.unit === "usd" ? "USD" : chain?.symbol}
             {g.start > 0 ? ` · mulai ${fmt(g.start)}` : ""}
+          </p>
+          <p className="mt-1 flex items-center gap-2 text-xs text-zinc-500">
+            {isLockMode(g) ? <Lock /> : <LockOpen />}
+            {modeOf(g) === "lock" ? "Lock" : "Unlock"} · dana {g.funded !== undefined ? fmt(g.funded) : "seluruh saldo jaringan"}
           </p>
         </div>
         <span
@@ -351,13 +405,24 @@ function GoalCard({
 
       <Sparkline points={points} target={g.target} start={g.start} />
 
-      {g.status === "active" && (
+      {g.status === "active" && isLockMode(g) && (
         <p className="flex items-center gap-2 text-xs text-amber-300/80">
-          <Lock /> Penarikan di {chain?.name ?? "jaringan ini"} dikunci sampai target tercapai.
+          <Lock />
+          {g.funded !== undefined
+            ? `Dana ${fmt(g.funded)} terkunci sampai target tercapai. Sisa saldo di luar itu tetap bisa ditarik.`
+            : `Seluruh penarikan di ${chain?.name ?? "jaringan ini"} dikunci sampai target tercapai.`}
         </p>
       )}
+      {g.status === "active" && !isLockMode(g) && (
+        <p className="flex items-center gap-2 text-xs text-zinc-500">
+          <LockOpen /> Mode Unlock: dana goal ini tidak dikunci dan bisa ditarik kapan saja.
+        </p>
+      )}
+      {g.status === "active" && chain && (isLockMode(g) ? g.funded !== undefined : true) && (
+        <FundEditor g={g} account={account} chain={chain} allGoals={allGoals} fmt={fmt} />
+      )}
       {g.status === "achieved" && g.achievedAt && (
-        <p className="text-xs text-zinc-500">Tercapai {new Date(g.achievedAt).toLocaleString("id-ID")}. Penarikan dibuka.</p>
+        <p className="text-xs text-zinc-500">Tercapai {new Date(g.achievedAt).toLocaleString("id-ID")}. Dana goal ini tidak lagi terkunci.</p>
       )}
 
       {g.status === "active" && (
@@ -391,5 +456,167 @@ function GoalCard({
         </div>
       )}
     </li>
+  );
+}
+
+/* ----------------------------------------------------- Ubah dana goal */
+
+function FundEditor({ g, account, chain, allGoals, fmt }: { g: Goal; account: Account; chain: ChainConfig; allGoals: Goal[]; fmt: (v: number) => string }) {
+  const { allTokens } = useSettings();
+  const [open, setOpen] = useState(false);
+  const [val, setVal] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const lockMode = isLockMode(g);
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    setErr("");
+    setBusy(true);
+    try {
+      const next = setFunded(g, num(val));
+      await verifyFunding(account, chain, allTokens, allGoals, next);
+      upsertGoal(next);
+      setOpen(false);
+      setVal("");
+    } catch (ex) {
+      setErr(errMsg(ex));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="justify-self-start text-xs text-accent hover:underline">
+        {lockMode ? "Tambah dana goal" : "Ubah dana goal"}
+      </button>
+    );
+  }
+  return (
+    <form onSubmit={save} className="grid gap-2 glass-surface rounded-xl border border-white/10 p-3">
+      <Field
+        label={`Dana baru (${g.unit === "usd" ? "USD" : chain.symbol})`}
+        hint={lockMode ? `Saat ini ${g.funded !== undefined ? fmt(g.funded) : "-"}. Dana goal Lock hanya bisa naik.` : "Boleh naik atau turun."}
+        error={err}
+      >
+        <input value={val} onChange={(e) => setVal(e.target.value)} inputMode="decimal" className={`${inputCls} font-mono`} autoFocus />
+      </Field>
+      <div className="flex gap-3">
+        <Button type="submit" busy={busy} disabled={!val.trim()} className="!px-3 !py-2 text-xs">
+          Simpan
+        </Button>
+        <button type="button" onClick={() => { setOpen(false); setErr(""); }} className="text-xs text-zinc-500 hover:text-zinc-200">
+          Batal
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/* --------------------------------------------------- Kunci semua jaringan */
+
+function TimeLockCard({ account }: { account: Account }) {
+  const ref = useMemo(() => walletRef(account), [account]);
+  const locks = useTimeLocks();
+  const [now, setNow] = useState(Date.now());
+  const [value, setValue] = useState("");
+  const [unit, setUnit] = useState<TimeUnit>("hour");
+  const [err, setErr] = useState("");
+  const [confirming, setConfirming] = useState<ReturnType<typeof planTimeLock> | null>(null);
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const active = activeTimeLock(locks, ref, now);
+
+  function review(e: FormEvent) {
+    e.preventDefault();
+    setErr("");
+    try {
+      const plan = planTimeLock(locks.find((l) => l.ref === ref), ref, num(value), unit, Date.now());
+      setConfirming(plan);
+    } catch (ex) {
+      setErr(errMsg(ex));
+    }
+  }
+
+  function confirm() {
+    if (!confirming) return;
+    try {
+      // Hitung ulang saat konfirmasi: aturan "tidak boleh memendek" dicek terhadap waktu sekarang.
+      const plan = planTimeLock(locks.find((l) => l.ref === ref), ref, num(value), unit, Date.now());
+      upsertTimeLock(plan);
+      setConfirming(null);
+      setValue("");
+    } catch (ex) {
+      setErr(errMsg(ex));
+      setConfirming(null);
+    }
+  }
+
+  return (
+    <section className="grid gap-4 glass-surface rounded-xl border border-white/10 p-4">
+      <h3 className="flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-zinc-500">
+        <Timer /> Kunci semua jaringan (waktu)
+      </h3>
+      {active ? (
+        <p className="flex items-start gap-2 text-sm text-amber-300/90">
+          <Lock className="mt-0.5 shrink-0" />
+          <span>
+            Semua kirim dan swap di SEMUA jaringan dikunci sampai {new Date(active.until).toLocaleString("id-ID")} (sisa{" "}
+            {formatRemaining(active.until - now)}). Tidak bisa dibatalkan atau dipersingkat, hanya diperpanjang.
+          </span>
+        </p>
+      ) : (
+        <p className="text-xs leading-relaxed text-zinc-500">
+          Tidak ada kunci waktu. Isi durasi untuk menolak semua kirim dan swap di semua jaringan sampai waktunya habis.
+        </p>
+      )}
+
+      {confirming ? (
+        <div className="grid gap-3">
+          <Notice>
+            Semua penarikan di semua jaringan akan ditolak sampai <b>{new Date(confirming.until).toLocaleString("id-ID")}</b>. Ini{" "}
+            <b>tidak bisa dibatalkan</b> lewat aplikasi. Lanjutkan?
+          </Notice>
+          <div className="flex gap-3">
+            <Button variant="danger" onClick={confirm}>
+              Ya, kunci
+            </Button>
+            <Button variant="ghost" onClick={() => setConfirming(null)}>
+              Batal
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <form onSubmit={review} className="grid gap-3">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
+            <Field label={active ? "Perpanjang: kunci sampai sekarang +" : "Durasi"} error={err}>
+              <input value={value} onChange={(e) => setValue(e.target.value)} inputMode="decimal" placeholder="mis. 7" className={`${inputCls} font-mono`} />
+            </Field>
+            <div className="grid content-end">
+              <div className="grid grid-cols-3 glass-field gap-1 rounded-xl border border-white/10 p-0.5 text-xs" role="group" aria-label="Satuan waktu">
+                {(["minute", "hour", "day"] as const).map((u) => (
+                  <button
+                    key={u}
+                    type="button"
+                    aria-pressed={unit === u}
+                    onClick={() => setUnit(u)}
+                    className={`rounded-[10px] px-2.5 py-3 transition-colors duration-300 ${unit === u ? "glass-lens text-zinc-50" : "text-zinc-500 hover:text-zinc-300"}`}
+                  >
+                    {UNIT_LABEL[u]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <Button type="submit" disabled={!value.trim()}>
+            {active ? "Perpanjang kunci" : "Kunci semua jaringan"}
+          </Button>
+        </form>
+      )}
+    </section>
   );
 }
