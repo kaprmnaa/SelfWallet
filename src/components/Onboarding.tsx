@@ -25,6 +25,7 @@ import {
 import {
   BiometricError,
   beginEnroll,
+  biometricMode,
   biometricName,
   biometricPassword,
   hasBiometric,
@@ -278,6 +279,7 @@ export function UnlockForm({ onDone }: DoneProps) {
               {progress !== null ? "Membuka…" : `Buka dengan ${bioName}`}
             </Button>
           </Magnetic>
+          {biometricMode(selected!.id) === "gate" && <p className="text-center text-xs text-zinc-600">Mode dasar</p>}
         </>
       ) : (
         <>
@@ -298,7 +300,10 @@ export function UnlockForm({ onDone }: DoneProps) {
                 onChange={(e) => setEnableBio(e.target.checked)}
                 className="mt-1 size-4 accent-[#398BFF]"
               />
-              Aktifkan {bioName}
+              <span>
+                Aktifkan {bioName}
+                <span className="block text-xs text-zinc-600">iOS 18+: terenkripsi penuh. iOS lama: mode dasar (kurang aman).</span>
+              </span>
             </label>
           )}
           {progress !== null && <ProgressBar value={progress} />}
@@ -695,7 +700,10 @@ function BackupStep({
                 onChange={(e) => setEnableBio(e.target.checked)}
                 className="mt-1 size-4 accent-[#398BFF]"
               />
-              Aktifkan {bioName}
+              <span>
+                Aktifkan {bioName}
+                <span className="block text-xs text-zinc-600">iOS 18+: terenkripsi penuh. iOS lama: mode dasar (kurang aman).</span>
+              </span>
             </label>
           )}
           {bioErr && <p className="text-xs text-rose-300">{bioErr}</p>}

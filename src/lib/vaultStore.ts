@@ -1,4 +1,4 @@
-import { removeBiometric } from "./biometric";
+import { clearBiometric, removeBiometric } from "./biometric";
 import { getAddress } from "ethers";
 import { load, remove, save } from "./storage";
 
@@ -93,6 +93,6 @@ export function removeSaved(id: string) {
 
 export function clearWallets() {
   remove(KEY);
-  remove("biometric");
+  clearBiometric();
   remove("vault");
 }

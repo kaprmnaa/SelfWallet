@@ -10,21 +10,68 @@ import { load, remove, save } from "./storage";
  * Cara kerja: passkey platform (Secure Enclave) menghasilkan rahasia 32 byte (PRF) HANYA setelah verifikasi biometrik.
  * Rahasia itu menjadi kunci AES-GCM yang mengenkripsi password vault. Yang tersimpan di browser hanya ciphertext
  * password + id passkey + salt. Kuncinya sendiri tidak pernah disimpan, jadi isi penyimpanan saja tidak cukup untuk
- * membuka wallet. Butuh iOS/Safari 18+ (PRF). Tanpa dukungan PRF, fitur disembunyikan.
+ * membuka wallet. Butuh iOS/Safari 18+ (PRF).
+ *
+ * Mode "gate" (cadangan untuk iOS 16-17 tanpa PRF): web TIDAK punya API biometrik selain passkey, dan tanpa PRF passkey
+ * tidak menghasilkan rahasia, hanya bukti kehadiran. Maka kunci AES dibuat tak-dapat-diekspor (non-extractable) dan
+ * disimpan di IndexedDB; Face ID menjadi gerbang di aplikasi sebelum kunci itu dipakai. Ini LEBIH LEMAH: melindungi dari
+ * penyalinan data penyimpanan, bukan dari kode yang berjalan di origin ini (XSS/ekstensi jahat).
  */
 
-type Entry = { cred: string; salt: string; blob: string };
+type Entry = { cred: string; salt?: string; blob: string; mode?: "gate" };
 const KEY = "biometric";
 const readAll = () => load<Record<string, Entry>>(KEY, {});
 
 export const hasBiometric = (walletId: string) => !!readAll()[walletId];
+
+export const biometricMode = (walletId: string): "prf" | "gate" | null => {
+  const e = readAll()[walletId];
+  return e ? (e.mode === "gate" ? "gate" : "prf") : null;
+};
 
 export function removeBiometric(walletId: string) {
   const m = readAll();
   delete m[walletId];
   if (Object.keys(m).length > 0) save(KEY, m);
   else remove(KEY);
+  void idbDel(walletId).catch(() => {});
 }
+
+/** Hapus semua data biometrik (dipakai saat semua wallet tersimpan dihapus). */
+export function clearBiometric() {
+  remove(KEY);
+  try {
+    indexedDB.deleteDatabase(IDB_NAME);
+  } catch {
+    /* diabaikan */
+  }
+}
+
+/* ----------------------------------------------- IndexedDB (kunci mode gate) */
+
+const IDB_NAME = "kunci-bio";
+const idb = () =>
+  new Promise<IDBDatabase>((res, rej) => {
+    const r = indexedDB.open(IDB_NAME, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("keys");
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+async function idbRun<T>(mode: IDBTransactionMode, f: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  const db = await idb();
+  try {
+    return await new Promise<T>((res, rej) => {
+      const req = f(db.transaction("keys", mode).objectStore("keys"));
+      req.onsuccess = () => res(req.result);
+      req.onerror = () => rej(req.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+const idbPut = (id: string, key: CryptoKey) => idbRun("readwrite", (s) => s.put(key, id));
+const idbGet = (id: string) => idbRun<CryptoKey | undefined>("readonly", (s) => s.get(id));
+const idbDel = (id: string) => idbRun("readwrite", (s) => s.delete(id));
 
 export type BiometricErrorCode = "unsupported" | "cancelled" | "invalid" | "failed";
 export class BiometricError extends Error {
@@ -48,12 +95,9 @@ export async function biometricSupported(): Promise<boolean> {
     if (!window.isSecureContext || !window.PublicKeyCredential || !navigator.credentials) return false;
     const pkc = window.PublicKeyCredential as unknown as {
       isUserVerifyingPlatformAuthenticatorAvailable?: () => Promise<boolean>;
-      getClientCapabilities?: () => Promise<Record<string, boolean>>;
     };
-    if (!(await pkc.isUserVerifyingPlatformAuthenticatorAvailable?.())) return false;
-    const caps = await pkc.getClientCapabilities?.();
-    if (caps && caps["extension:prf"] === false) return false;
-    return true;
+    // Cukup ada autentikator platform (Face ID/Touch ID). PRF (iOS 18+) hanya menentukan mode penuh vs mode dasar.
+    return !!(await pkc.isUserVerifyingPlatformAuthenticatorAvailable?.());
   } catch {
     return false;
   }
@@ -115,6 +159,24 @@ function mapError(e: unknown): BiometricError {
   return new BiometricError("failed", "Verifikasi biometrik gagal.");
 }
 
+/** Verifikasi biometrik saja (tanpa PRF). Dipakai mode gate. */
+async function assertPresence(cred: Uint8Array): Promise<void> {
+  try {
+    const res = await navigator.credentials.get({
+      publicKey: {
+        challenge: rnd(32),
+        rpId: location.hostname,
+        allowCredentials: [{ type: "public-key", id: cred as BufferSource, transports: ["internal"] }],
+        userVerification: "required",
+        timeout: 60_000,
+      },
+    });
+    if (!res) throw new BiometricError("failed", "Verifikasi biometrik gagal.");
+  } catch (e) {
+    throw mapError(e);
+  }
+}
+
 async function getSecret(cred: Uint8Array, salt: Uint8Array): Promise<ArrayBuffer> {
   try {
     const res = (await navigator.credentials.get({
@@ -135,7 +197,7 @@ async function getSecret(cred: Uint8Array, salt: Uint8Array): Promise<ArrayBuffe
   }
 }
 
-export type PendingEnroll = { cred: Uint8Array; salt: Uint8Array; key: CryptoKey };
+export type PendingEnroll = { mode: "prf"; cred: Uint8Array; salt: Uint8Array; key: CryptoKey } | { mode: "gate"; cred: Uint8Array; key: CryptoKey };
 
 /**
  * Langkah 1: buat passkey + turunkan kunci. HARUS dipanggil langsung dari gestur sentuhan (Safari menolak WebAuthn
@@ -161,9 +223,18 @@ export async function beginEnroll(label: string): Promise<PendingEnroll> {
     })) as PublicKeyCredential | null;
     if (!cred) throw new BiometricError("failed", "Verifikasi biometrik gagal.");
     const id = new Uint8Array(cred.rawId);
-    // Beberapa browser (Safari) baru memberi rahasia PRF pada permintaan kedua.
-    const secret = (cred.getClientExtensionResults() as PrfExt).prf?.results?.first ?? (await getSecret(id, salt));
-    return { cred: id, salt, key: await keyFromSecret(secret) };
+    const prf = (cred.getClientExtensionResults() as PrfExt).prf;
+    if (prf?.results?.first) return { mode: "prf", cred: id, salt, key: await keyFromSecret(prf.results.first) };
+    if (prf?.enabled) {
+      // Safari memberi rahasia PRF baru pada permintaan kedua.
+      try {
+        return { mode: "prf", cred: id, salt, key: await keyFromSecret(await getSecret(id, salt)) };
+      } catch (e) {
+        if (!(e instanceof BiometricError && e.code === "unsupported")) throw e;
+      }
+    }
+    // PRF tidak tersedia (iOS < 18): mode gate dengan kunci tak-dapat-diekspor.
+    return { mode: "gate", cred: id, key: await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]) };
   } catch (e) {
     throw mapError(e);
   }
@@ -172,6 +243,11 @@ export async function beginEnroll(label: string): Promise<PendingEnroll> {
 /** Langkah 2 (setelah password terbukti benar): simpan password terenkripsi untuk wallet ini. */
 export async function sealEnroll(p: PendingEnroll, walletId: string, password: string): Promise<void> {
   const blob = await sealPassword(p.key, walletId, password);
+  if (p.mode === "gate") {
+    await idbPut(walletId, p.key);
+    save(KEY, { ...readAll(), [walletId]: { cred: base64.encode(p.cred), blob, mode: "gate" } });
+    return;
+  }
   save(KEY, { ...readAll(), [walletId]: { cred: base64.encode(p.cred), salt: base64.encode(p.salt), blob } });
 }
 
@@ -179,10 +255,19 @@ export async function sealEnroll(p: PendingEnroll, walletId: string, password: s
 export async function biometricPassword(walletId: string): Promise<string> {
   const e = readAll()[walletId];
   if (!e) throw new BiometricError("invalid", "Face ID belum diaktifkan untuk wallet ini.");
-  const secret = await getSecret(base64.decode(e.cred), base64.decode(e.salt));
+  const cred = base64.decode(e.cred);
   try {
+    if (e.mode === "gate") {
+      await assertPresence(cred);
+      const key = await idbGet(walletId);
+      if (!key) throw new Error("kunci hilang");
+      return await openPassword(key, walletId, e.blob);
+    }
+    const secret = await getSecret(cred, base64.decode(e.salt ?? ""));
     return await openPassword(await keyFromSecret(secret), walletId, e.blob);
-  } catch {
+  } catch (err) {
+    if (err instanceof BiometricError && err.code !== "invalid") throw err; // dibatalkan / tidak didukung: jangan buang data
+
     // Passkey dihapus/diganti: data lama tidak bisa dibuka lagi.
     throw new BiometricError("invalid", "Face ID tidak lagi valid. Masukkan password.");
   }
