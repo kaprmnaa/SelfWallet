@@ -13,6 +13,7 @@ import {
   allocate, checkWithdrawal, outgoingValue, setFunded, modeOf, isLockMode, lockGoals, poolCurrency,
 } from "../src/goals/allocation";
 import { parseItem } from "../src/history/crypto";
+import { normalizeAddress, sameAddress, validateContact, isContact, isRecipientAllowed, type Contact } from "../src/contacts/logic";
 import { keyFromSecret, sealPassword, openPassword } from "../src/lib/biometric";
 import { hkdf32 } from "../src/lib/kdf";
 import { durationMs, planTimeLock, activeTimeLock, mergeTimeLock, formatRemaining } from "../src/goals/timelock";
@@ -324,6 +325,40 @@ ok("riwayat: chainId/ts tidak valid ditolak", parseItem({ ...HI, chainId: 1.5 })
   ok("faceid: blob rusak/pendek ditolak", await openPassword(kA, "0xwallet1", "AAAA").then(() => false, () => true));
   ok("faceid: hkdf32 deterministik dan 32 byte", hkdf32(secretA, new Uint8Array([1])).length === 32 && Buffer.from(hkdf32(secretA, new Uint8Array([1]))).equals(Buffer.from(hkdf32(secretA, new Uint8Array([1])))));
   ok("faceid: info berbeda -> kunci berbeda", !Buffer.from(hkdf32(secretA, new Uint8Array([1]))).equals(Buffer.from(hkdf32(secretA, new Uint8Array([2])))));
+}
+
+/* -------------------------------------------------------- Buku alamat + whitelist */
+{
+  const A1 = "0x52908400098527886E0F7030069857D2E4169EE7"; // alamat EIP-55 valid
+  const A2 = "0xde709f2102306220921060314715629080e2fb77";
+  const SOL = "11111111111111111111111111111111"; // 32 byte nol (System Program)
+  const mk = (over: Partial<Contact>): Contact => ({ id: "c1", name: "Budi", address: A1, kind: "evm", createdAt: 1, updatedAt: 1, ...over });
+
+  ok("kontak: EVM valid dinormalisasi (checksum)", normalizeAddress("evm", A2.toLowerCase()) === normalizeAddress("evm", A2));
+  ok("kontak: EVM checksum salah ditolak (ethers asli)", (() => { try { normalizeAddress("evm", A1.slice(0, -2) + "e7"); return false; } catch { return true; } })());
+  ok("kontak: EVM format salah ditolak", ["0x123", "bukan-alamat", "", "0x" + "g".repeat(40)].every((v) => { try { normalizeAddress("evm", v); return false; } catch { return true; } }));
+  ok("kontak: Solana 32 byte valid, panjang salah ditolak", normalizeAddress("sol", SOL) === SOL && (() => { try { normalizeAddress("sol", "abc"); return false; } catch { return true; } })());
+  ok("kontak: BTC bech32 dinormalisasi huruf kecil", normalizeAddress("btc", "BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4") === "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4");
+  ok("kontak: BTC bech32 huruf campuran ditolak", (() => { try { normalizeAddress("btc", "bc1qW508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"); return false; } catch { return true; } })());
+  ok("kontak: BTC legacy base58 diterima, sampah ditolak", normalizeAddress("btc", "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2") === "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2" && (() => { try { normalizeAddress("btc", "0OIl"); return false; } catch { return true; } })());
+  ok("kontak: sameAddress EVM tak peka huruf, base58 peka", sameAddress("evm", A1, A1.toLowerCase()) && !sameAddress("sol", "AbC", "abc") && sameAddress("btc", "bc1qabc", "BC1QABC"));
+
+  const base = [mk({})];
+  ok("kontak: nama kosong / terlalu panjang ditolak", ["", "   ", "x".repeat(25)].every((n) => { try { validateContact([], { name: n, address: A1, kind: "evm" }); return false; } catch { return true; } }));
+  ok("kontak: nama ganda ditolak (tak peka huruf)", (() => { try { validateContact(base, { name: "budi", address: A2, kind: "evm" }); return false; } catch { return true; } })());
+  ok("kontak: alamat ganda ditolak (jenis sama)", (() => { try { validateContact(base, { name: "Lain", address: A1.toLowerCase(), kind: "evm" }); return false; } catch { return true; } })());
+  ok("kontak: ubah diri sendiri tidak dianggap duplikat", validateContact(base, { name: "Budi", address: A1, kind: "evm", note: "  teman  " }, "c1").note === "teman");
+  ok("kontak: spasi & karakter kontrol dirapikan", validateContact([], { name: "  Ana \n\t Maria ", address: A1, kind: "evm" }).name === "Ana Maria");
+  ok("kontak: catatan > 60 ditolak", (() => { try { validateContact([], { name: "X", address: A1, kind: "evm", note: "y".repeat(61) }); return false; } catch { return true; } })());
+  ok("kontak: batas jumlah kontak", (() => { try { validateContact(Array.from({ length: 200 }, (_, i) => mk({ id: "i" + i, name: "n" + i, address: "0x" + i.toString(16).padStart(40, "0") })), { name: "Baru", address: A2, kind: "evm" }); return false; } catch { return true; } })());
+  ok("kontak: data tersimpan yang rusak ditolak isContact", !isContact(null) && !isContact({ id: 1 }) && !isContact({ ...mk({}), kind: "xyz" }) && isContact(mk({})));
+
+  ok("whitelist: nonaktif -> semua boleh", isRecipientAllowed(false, [], "evm", A2));
+  ok("whitelist: aktif -> alamat di kontak boleh", isRecipientAllowed(true, base, "evm", A1.toLowerCase()));
+  ok("whitelist: aktif -> alamat asing ditolak", !isRecipientAllowed(true, base, "evm", A2));
+  ok("whitelist: aktif -> alamat sendiri boleh", isRecipientAllowed(true, [], "evm", A2, A2.toLowerCase()));
+  ok("whitelist: aktif -> alamat tak valid ditolak", !isRecipientAllowed(true, base, "evm", "ngawur"));
+  ok("whitelist: kontak EVM tidak berlaku untuk jenis lain", !isRecipientAllowed(true, base, "sol", SOL));
 }
 
 laneTest().then(() => {

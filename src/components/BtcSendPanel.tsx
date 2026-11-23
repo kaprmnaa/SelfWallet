@@ -8,6 +8,8 @@ import { btcAmount, prepareBtc, signAndSendBtc, type BtcPrepared } from "../chai
 import { errMsg, trimAmount } from "../lib/format";
 import { useLockInfo } from "../goals/useLock";
 import GoalLockNotice from "./GoalLockNotice";
+import { useRecipient } from "../contacts/useRecipient";
+import RecipientField from "./RecipientField";
 import { Button, DetailRow, Field, Modal, Notice, StatusDot, inputCls } from "./ui";
 
 const STALE_MS = 90_000;
@@ -27,6 +29,7 @@ export default function BtcSendPanel({
   const { history, addHistory } = useSettings();
   const lock = useLockInfo(chain, account);
   const [to, setTo] = useState("");
+  const rcp = useRecipient("btc", to);
   const [amount, setAmount] = useState("");
   const [max, setMax] = useState(false);
   const [tier, setTier] = useState<FeeTier>("normal");
@@ -35,6 +38,7 @@ export default function BtcSendPanel({
   const [err, setErr] = useState("");
   const [preparing, setPreparing] = useState(false);
   const [prepared, setPrepared] = useState<BtcPrepared | null>(null);
+  const rc = useRecipient("btc", prepared?.to ?? "");
   const [sending, setSending] = useState(false);
   const [modalErr, setModalErr] = useState("");
   const [lastTx, setLastTx] = useState<string | null>(null);
@@ -108,16 +112,13 @@ export default function BtcSendPanel({
     <div className="grid gap-6">
       {lock.active && <GoalLockNotice info={lock} chain={chain} />}
       <form onSubmit={review} className="grid gap-5">
-        <Field label="Alamat penerima" hint={`Format ${chain.testnet ? "tb1…" : "bc1…, 1…, atau 3…"} sesuai jaringan.`}>
-          <input
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            placeholder={chain.testnet ? "tb1q…" : "bc1q…"}
-            autoComplete="off"
-            spellCheck={false}
-            className={`${inputCls} font-mono`}
-          />
-        </Field>
+        <RecipientField
+          kind="btc"
+          value={to}
+          onChange={setTo}
+          placeholder={chain.testnet ? "tb1q…" : "bc1q…"}
+          hint={`Format ${chain.testnet ? "tb1…" : "bc1…, 1…, atau 3…"} sesuai jaringan.`}
+        />
         <Field label={`Jumlah (${chain.symbol})`} error={err}>
           <div className="flex gap-2">
             <input
@@ -162,7 +163,7 @@ export default function BtcSendPanel({
           )}
         </div>
 
-        <Button type="submit" disabled={!to || (!max && !amount) || !quote || lock.blocked} busy={preparing}>
+        <Button type="submit" disabled={!to || (!max && !amount) || !quote || lock.blocked || rcp.blocked} busy={preparing}>
           {preparing ? "Memindai UTXO…" : "Tinjau transaksi"}
         </Button>
       </form>
@@ -192,6 +193,7 @@ export default function BtcSendPanel({
             <dl className="divide-y divide-white/[0.06] border-y border-white/[0.06]">
               <DetailRow k="Jaringan">{chain.name}</DetailRow>
               <DetailRow k="Ke">
+                {rc.contact && <span className="mb-1 block text-zinc-100">{rc.contact.name}</span>}
                 <span className="break-all font-mono text-xs">{prepared.to}</span>
               </DetailRow>
               <DetailRow k="Jumlah">

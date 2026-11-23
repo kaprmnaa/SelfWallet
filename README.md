@@ -70,6 +70,10 @@ atau koin native, termasuk testnet untuk uji coba). Progres, grafik perjalanan, 
     menjadi gerbang di aplikasi. Lebih lemah: melindungi dari penyalinan data penyimpanan, TIDAK dari kode yang berjalan di origin ini (XSS / ekstensi browser jahat).
   - Siapa pun yang lolos verifikasi perangkat (termasuk passcode perangkat) bisa membuka wallet ini. Menghapus passkey membuat mode penuh tidak bisa dibuka lagi (pakai password).
     Data Face ID dihapus saat "Lupakan". Wallet bernilai besar sebaiknya tanpa Face ID.
+- **Kontak (address book) + whitelist:** tab Kontak menyimpan alamat dengan nama (EVM, Bitcoin, Solana), data hanya di browser ini. Di tab Kirim ada tombol pemilih kontak,
+  nama kontak muncul saat alamat cocok, dan "Simpan ke kontak" untuk alamat baru. Nama kontak juga tampil di modal tinjau dan riwayat. Saklar **Whitelist** membuat aplikasi hanya
+  mau mengirim ke alamat yang ada di Kontak (atau alamat wallet sendiri); dicek di UI dan di fungsi penandatangan. Alamat divalidasi per jenis (checksum EVM, panjang Solana, format Bitcoin).
+  Komitmen di dalam aplikasi: kontak bisa ditambah dan whitelist dimatikan kapan saja.
 - **Riwayat tersinkron (terenkripsi):** setelah masuk (tab Goal), riwayat transaksi tersimpan di Supabase dan terlihat di perangkat mana pun yang membuka wallet
   yang sama. Dienkripsi di perangkat (AES-GCM, kunci diturunkan dari private key): server hanya melihat ciphertext, penanda wallet, chain id, dan waktu.
   Hash, alamat, jumlah, dan status tidak terbaca. Hanya pengiriman yang tercatat (swap belum). Jalankan ulang `supabase/schema.sql` untuk tabel `tx_history`.

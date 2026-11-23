@@ -4,6 +4,7 @@ import type { ChainConfig } from "../../lib/chains";
 import type { Account } from "../../lib/vault";
 import { parseAmount } from "../../lib/tx";
 import { assertCanSpend } from "../../goals/guard";
+import { assertRecipientAllowed } from "../../contacts/guard";
 import {
   NEED_PHRASE,
   btcAccountNode,
@@ -86,6 +87,7 @@ export async function prepareBtc(
 
 /** Tandatangani lokal, periksa kesesuaian dengan ringkasan, lalu siarkan. Mengembalikan txid. */
 export async function signAndSendBtc(account: Account, p: BtcPrepared): Promise<string> {
+  assertRecipientAllowed("btc", p.to);
   await assertCanSpend(account, p.chain, { native: Number(formatUnits(p.amount + p.fee, 8)) });
   const seed = getSeed(account);
   if (!seed) throw new Error(NEED_PHRASE);

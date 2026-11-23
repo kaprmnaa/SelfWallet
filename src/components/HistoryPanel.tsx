@@ -1,11 +1,13 @@
 import { m } from "framer-motion";
 import { ArrowSquareOut, ClockCounterClockwise } from "@phosphor-icons/react";
-import { explorerTx, type ChainConfig } from "../lib/chains";
+import { explorerTx, kindOf, type ChainConfig } from "../lib/chains";
 import { useSettings } from "../context/SettingsContext";
 import { shortAddr, timeAgo, trimAmount } from "../lib/format";
 import CoinIcon from "./CoinIcon";
 import type { HistorySyncState } from "../history/useHistorySync";
 import type { SyncState } from "../goals/sync";
+import { findContact } from "../contacts/logic";
+import { useContacts } from "../contacts/store";
 import { StatusDot, spring } from "./ui";
 
 const LABEL = { pending: "Menunggu", success: "Berhasil", failed: "Gagal" } as const;
@@ -45,6 +47,7 @@ export default function HistoryPanel({
   hsync: HistorySyncState;
 }) {
   const { history } = useSettings();
+  const contacts = useContacts();
   const items = history.filter((h) => h.chainId === chain.chainId && h.from === address);
 
   if (items.length === 0) {
@@ -87,7 +90,7 @@ export default function HistoryPanel({
                 <span className="font-mono">
                   {trimAmount(h.amount, 8)} {h.symbol}
                 </span>{" "}
-                <span className="text-zinc-500">ke {shortAddr(h.to)}</span>
+                <span className="text-zinc-500">ke {findContact(contacts, kindOf(chain), h.to)?.name ?? shortAddr(h.to)}</span>
               </p>
               <p className="flex items-center gap-2 text-xs text-zinc-500">
                 <StatusDot tone={TONE[h.status]} still={h.status !== "pending"} />

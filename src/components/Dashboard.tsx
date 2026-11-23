@@ -20,6 +20,7 @@ import ChainPulse from "./ChainPulse";
 import NetworkSwitcher from "./NetworkSwitcher";
 import WalletSwitcher from "./WalletSwitcher";
 import PortfolioPanel from "./PortfolioPanel";
+import ContactsPanel from "./ContactsPanel";
 import CoinIcon from "./CoinIcon";
 import { Button, CopyButton, Notice, Skeleton, Tabs, spring } from "./ui";
 
@@ -33,11 +34,12 @@ const ReceivePanel = lazy(() => import("./ReceivePanel"));
 const TokensPanel = lazy(() => import("./TokensPanel"));
 const HistoryPanel = lazy(() => import("./HistoryPanel"));
 
-type Tab = "portofolio" | "goal" | "kirim" | "swap" | "terima" | "token" | "riwayat";
+type Tab = "portofolio" | "goal" | "kirim" | "kontak" | "swap" | "terima" | "token" | "riwayat";
 const TABS: { key: Tab; label: string }[] = [
   { key: "portofolio", label: "Aset" },
   { key: "goal", label: "Goal" },
   { key: "kirim", label: "Kirim" },
+  { key: "kontak", label: "Kontak" },
   { key: "swap", label: "Swap" },
   { key: "terima", label: "Terima" },
   { key: "token", label: "Token" },
@@ -240,6 +242,7 @@ export default function Dashboard({ account }: { account: Account }) {
                     ) : (
                       <SendPanel account={account} chain={chain} address={address} onSent={afterSend} />
                     ))}
+                  {activeTab === "kontak" && <ContactsPanel kind={kind} />}
                   {activeTab === "goal" && <GoalsPanel account={account} chain={chain} engine={engine} sync={sync} />}
                   {activeTab === "swap" && <SwapPanel account={account} chain={chain} onChanged={afterSend} />}
                   {activeTab === "terima" &&

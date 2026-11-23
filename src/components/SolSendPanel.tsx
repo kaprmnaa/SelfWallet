@@ -8,6 +8,8 @@ import { prepareSol, signAndSendSol, type SolPrepared } from "../chains/solana/t
 import { errMsg } from "../lib/format";
 import { useLockInfo } from "../goals/useLock";
 import GoalLockNotice from "./GoalLockNotice";
+import { useRecipient } from "../contacts/useRecipient";
+import RecipientField from "./RecipientField";
 import { Button, DetailRow, Field, Modal, Notice, StatusDot, inputCls } from "./ui";
 
 const STALE_MS = 45_000; // blockhash Solana kedaluwarsa dalam kurang dari ~90 detik
@@ -26,11 +28,13 @@ export default function SolSendPanel({
   const { history, addHistory } = useSettings();
   const lock = useLockInfo(chain, account);
   const [to, setTo] = useState("");
+  const rcp = useRecipient("sol", to, owner);
   const [amount, setAmount] = useState("");
   const [max, setMax] = useState(false);
   const [err, setErr] = useState("");
   const [preparing, setPreparing] = useState(false);
   const [prepared, setPrepared] = useState<SolPrepared | null>(null);
+  const rc = useRecipient("sol", prepared?.to ?? "", owner);
   const [sending, setSending] = useState(false);
   const [modalErr, setModalErr] = useState("");
   const [lastTx, setLastTx] = useState<string | null>(null);
@@ -93,16 +97,7 @@ export default function SolSendPanel({
     <div className="grid gap-6">
       {lock.active && <GoalLockNotice info={lock} chain={chain} />}
       <form onSubmit={review} className="grid gap-5">
-        <Field label="Alamat penerima" hint="Alamat Solana (Base58, 32 byte).">
-          <input
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            placeholder="Alamat Solana…"
-            autoComplete="off"
-            spellCheck={false}
-            className={`${inputCls} font-mono`}
-          />
-        </Field>
+        <RecipientField kind="sol" value={to} onChange={setTo} placeholder="Alamat Solana…" hint="Alamat Solana (Base58, 32 byte)." self={owner} />
         <Field label={`Jumlah (${chain.symbol})`} error={err}>
           <div className="flex gap-2">
             <input
@@ -119,7 +114,7 @@ export default function SolSendPanel({
             </Button>
           </div>
         </Field>
-        <Button type="submit" disabled={!to || (!max && !amount) || lock.blocked} busy={preparing}>
+        <Button type="submit" disabled={!to || (!max && !amount) || lock.blocked || rcp.blocked} busy={preparing}>
           {preparing ? "Menyiapkan transaksi…" : "Tinjau transaksi"}
         </Button>
       </form>
@@ -152,6 +147,7 @@ export default function SolSendPanel({
                 <span className="break-all font-mono text-xs">{prepared.from}</span>
               </DetailRow>
               <DetailRow k="Ke">
+                {rc.contact && <span className="mb-1 block text-zinc-100">{rc.contact.name}</span>}
                 <span className="break-all font-mono text-xs">{prepared.to}</span>
               </DetailRow>
               <DetailRow k="Jumlah">

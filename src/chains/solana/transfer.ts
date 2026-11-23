@@ -5,6 +5,7 @@ import type { ChainConfig } from "../../lib/chains";
 import type { Account } from "../../lib/vault";
 import { parseAmount } from "../../lib/tx";
 import { assertCanSpend } from "../../goals/guard";
+import { assertRecipientAllowed } from "../../contacts/guard";
 import { NEED_PHRASE, solAccount } from "../../core/derive";
 import { assertSolCluster, solBalance, solRpc } from "./rpc";
 
@@ -130,6 +131,7 @@ export async function prepareSol(
 
 /** Tandatangani lokal (Ed25519) lalu siarkan. Mengembalikan signature (id transaksi). */
 export async function signAndSendSol(account: Account, p: SolPrepared): Promise<string> {
+  assertRecipientAllowed("sol", p.to, p.from);
   await assertCanSpend(account, p.chain, { native: Number(formatUnits(p.lamports + p.fee, 9)) });
   const sol = solAccount(account);
   if (!sol) throw new Error(NEED_PHRASE);

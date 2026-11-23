@@ -12,6 +12,7 @@ import { encodeTransfer, tokenBalanceOn, type TokenInfo } from "./tokens";
 import { trimAmount } from "./format";
 import type { Account } from "./vault";
 import { assertCanSpend } from "../goals/guard";
+import { assertRecipientAllowed } from "../contacts/guard";
 
 export type Draft = {
   chain: ChainConfig;
@@ -115,6 +116,7 @@ export const feeWei = (p: Prepared) => p.gasLimit * p.feeCap;
 /** Tandatangani secara lokal, lalu siarkan raw transaction. Mengembalikan hash. */
 export async function signAndSend(account: Account, prepared: Prepared): Promise<string> {
   const { chain } = prepared.draft;
+  assertRecipientAllowed("evm", prepared.recipient, prepared.draft.from);
   // Dana terkunci: native + biaya gas (batas atas) selalu keluar; token hanya jika yang dikirim token.
   await assertCanSpend(account, chain, {
     native: Number(formatEther(feeWei(prepared))) + (prepared.draft.token ? 0 : Number(formatEther(prepared.value))),

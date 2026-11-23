@@ -9,6 +9,8 @@ import { tokenBalance } from "../lib/tokens";
 import { errMsg, shortAddr, trimAmount } from "../lib/format";
 import { useLockInfo } from "../goals/useLock";
 import GoalLockNotice from "./GoalLockNotice";
+import { useRecipient } from "../contacts/useRecipient";
+import RecipientField from "./RecipientField";
 import { Button, Field, Modal, Notice, StatusDot, inputCls } from "./ui";
 
 const STALE_MS = 90_000;
@@ -37,10 +39,12 @@ export default function SendPanel({
   const lock = useLockInfo(chain, account);
   const [asset, setAsset] = useState("native");
   const [to, setTo] = useState("");
+  const rcp = useRecipient("evm", to, address);
   const [amount, setAmount] = useState("");
   const [err, setErr] = useState("");
   const [preparing, setPreparing] = useState(false);
   const [prepared, setPrepared] = useState<Prepared | null>(null);
+  const rc = useRecipient("evm", prepared?.recipient ?? "", address);
   const [sending, setSending] = useState(false);
   const [modalErr, setModalErr] = useState("");
   const [lastHash, setLastHash] = useState<string | null>(null);
@@ -122,16 +126,7 @@ export default function SendPanel({
             ))}
           </select>
         </Field>
-        <Field label="Alamat penerima" hint="Alamat huruf campuran divalidasi checksum-nya.">
-          <input
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            placeholder="0x…"
-            autoComplete="off"
-            spellCheck={false}
-            className={`${inputCls} font-mono`}
-          />
-        </Field>
+        <RecipientField kind="evm" value={to} onChange={setTo} placeholder="0x…" hint="Alamat huruf campuran divalidasi checksum-nya." self={address} />
         <Field label={`Jumlah (${symbol})`} error={err}>
           <div className="flex gap-2">
             <input
@@ -147,7 +142,7 @@ export default function SendPanel({
             </Button>
           </div>
         </Field>
-        <Button type="submit" disabled={!to || !amount || lock.blocked} busy={preparing}>
+        <Button type="submit" disabled={!to || !amount || lock.blocked || rcp.blocked} busy={preparing}>
           {preparing ? "Menghitung biaya…" : "Tinjau transaksi"}
         </Button>
       </form>
@@ -187,6 +182,7 @@ export default function SendPanel({
                 <span className="font-mono text-xs">{address}</span>
               </Row>
               <Row k="Ke">
+                {rc.contact && <span className="mb-1 block text-zinc-100">{rc.contact.name}</span>}
                 <span className="break-all font-mono text-xs">{prepared.recipient}</span>
               </Row>
               <Row k="Jumlah">
