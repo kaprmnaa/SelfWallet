@@ -10,7 +10,7 @@ import { useVisibleInterval } from "../lib/visibility";
 import { trimAmount } from "../lib/format";
 import { fmtIdr, fmtUsd, usePortfolio } from "../lib/portfolio";
 import { clearWallets, loadWallets } from "../lib/vaultStore";
-import { SOL_PATH, btcAccountPath, btcNet } from "../core/derive";
+import { SOL_PATH, ZEC_PATH, btcAccountPath, btcNet } from "../core/derive";
 import { useSwapTracker } from "../swap/tracker";
 import { useGoalEngine } from "../goals/engine";
 import { useSync } from "../goals/useSync";
@@ -21,6 +21,7 @@ import NetworkSwitcher from "./NetworkSwitcher";
 import WalletSwitcher from "./WalletSwitcher";
 import PortfolioPanel from "./PortfolioPanel";
 import ContactsPanel from "./ContactsPanel";
+import ZecSendPanel from "./ZecSendPanel";
 import CoinIcon from "./CoinIcon";
 import { Button, CopyButton, Notice, Skeleton, Tabs, spring } from "./ui";
 
@@ -237,6 +238,8 @@ export default function Dashboard({ account }: { account: Account }) {
                       <PanelSkeleton />
                     ) : kind === "btc" ? (
                       <BtcSendPanel account={account} chain={chain} owner={owner} onSent={afterSend} />
+                    ) : kind === "zec" ? (
+                      <ZecSendPanel account={account} chain={chain} owner={owner} onSent={afterSend} />
                     ) : kind === "sol" ? (
                       <SolSendPanel account={account} chain={chain} owner={owner} onSent={afterSend} />
                     ) : (
@@ -301,6 +304,12 @@ export default function Dashboard({ account }: { account: Account }) {
                 <>
                   <dt className="text-zinc-500">Derivasi</dt>
                   <dd className="break-all font-mono text-zinc-200">{btcAccountPath(btcNet(chain.testnet))} (BIP-84)</dd>
+                </>
+              )}
+              {kind === "zec" && (
+                <>
+                  <dt className="text-zinc-500">Derivasi</dt>
+                  <dd className="break-all font-mono text-zinc-200">{ZEC_PATH} (transparent)</dd>
                 </>
               )}
               {kind === "sol" && (

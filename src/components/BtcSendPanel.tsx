@@ -10,6 +10,8 @@ import { useLockInfo } from "../goals/useLock";
 import GoalLockNotice from "./GoalLockNotice";
 import { useRecipient } from "../contacts/useRecipient";
 import RecipientField from "./RecipientField";
+import { requireTxAuth, useTxSettings, walletIdOf } from "../txauth/store";
+import SendModeBar from "./SendModeBar";
 import { Button, DetailRow, Field, Modal, Notice, StatusDot, inputCls } from "./ui";
 
 const STALE_MS = 90_000;
@@ -37,6 +39,8 @@ export default function BtcSendPanel({
   const [quoteErr, setQuoteErr] = useState("");
   const [err, setErr] = useState("");
   const [preparing, setPreparing] = useState(false);
+  const ts = useTxSettings(walletIdOf(account));
+  const fast = ts.mode === "fast";
   const [prepared, setPrepared] = useState<BtcPrepared | null>(null);
   const rc = useRecipient("btc", prepared?.to ?? "");
   const [sending, setSending] = useState(false);
@@ -59,16 +63,45 @@ export default function BtcSendPanel({
 
   async function review(e: FormEvent) {
     e.preventDefault();
+    if (guard.current) return;
     setErr("");
     setModalErr("");
-    setPreparing(true);
+    guard.current = true;
     try {
-      setPrepared(await prepareBtc(chain, account, { to, amount, max, tier }));
+      // Mode cepat + Face ID: konfirmasi DULU (harus dalam gestur sentuhan), lalu siapkan dan kirim.
+      if (fast && ts.auth) await requireTxAuth(account, { kind: "btc", chainId: chain.chainId, to });
+      setPreparing(true);
+      const p = await prepareBtc(chain, account, { to, amount, max, tier });
+      // Cepat hanya jika fee wajar (<= 10% dari jumlah); selain itu tampilkan modal tinjau.
+      const pct = p.amount > 0n ? Number((p.fee * 10000n) / p.amount) / 100 : 0;
+      if (fast && pct <= 10) await send(p);
+      else setPrepared(p);
     } catch (ex) {
       setErr(errMsg(ex));
     } finally {
+      guard.current = false;
       setPreparing(false);
     }
+  }
+
+  async function send(p: BtcPrepared) {
+    const txid = await signAndSendBtc(account, p);
+    addHistory({
+      hash: txid,
+      chainId: chain.chainId,
+      from: owner,
+      to: p.to,
+      amount: btcAmount(p.amount),
+      symbol: chain.symbol,
+      ts: Date.now(),
+      status: "pending",
+    });
+    setLastTx(txid);
+    setPrepared(null);
+    setTo("");
+    setAmount("");
+    setMax(false);
+    onSent();
   }
 
   async function confirm() {
@@ -81,23 +114,9 @@ export default function BtcSendPanel({
     setSending(true);
     setModalErr("");
     try {
-      const txid = await signAndSendBtc(account, prepared);
-      addHistory({
-        hash: txid,
-        chainId: chain.chainId,
-        from: owner,
-        to: prepared.to,
-        amount: btcAmount(prepared.amount),
-        symbol: chain.symbol,
-        ts: Date.now(),
-        status: "pending",
-      });
-      setLastTx(txid);
-      setPrepared(null);
-      setTo("");
-      setAmount("");
-      setMax(false);
-      onSent();
+      await requireTxAuth(account, { kind: "btc", chainId: chain.chainId, to: prepared.to });
+      if (Date.now() - prepared.createdAt > STALE_MS) throw new Error("Data UTXO dan fee sudah kedaluwarsa. Tutup, lalu tinjau ulang.");
+      await send(prepared);
     } catch (ex) {
       setModalErr(errMsg(ex));
     } finally {
@@ -111,6 +130,7 @@ export default function BtcSendPanel({
   return (
     <div className="grid gap-6">
       {lock.active && <GoalLockNotice info={lock} chain={chain} />}
+      <SendModeBar account={account} />
       <form onSubmit={review} className="grid gap-5">
         <RecipientField
           kind="btc"
@@ -164,7 +184,7 @@ export default function BtcSendPanel({
         </div>
 
         <Button type="submit" disabled={!to || (!max && !amount) || !quote || lock.blocked || rcp.blocked} busy={preparing}>
-          {preparing ? "Memindai UTXO…" : "Tinjau transaksi"}
+          {preparing ? (fast ? "Mengirim…" : "Memindai UTXO…") : fast ? "Kirim" : "Tinjau transaksi"}
         </Button>
       </form>
 

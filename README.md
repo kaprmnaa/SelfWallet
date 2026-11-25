@@ -74,6 +74,19 @@ atau koin native, termasuk testnet untuk uji coba). Progres, grafik perjalanan, 
   nama kontak muncul saat alamat cocok, dan "Simpan ke kontak" untuk alamat baru. Nama kontak juga tampil di modal tinjau dan riwayat. Saklar **Whitelist** membuat aplikasi hanya
   mau mengirim ke alamat yang ada di Kontak (atau alamat wallet sendiri); dicek di UI dan di fungsi penandatangan. Alamat divalidasi per jenis (checksum EVM, panjang Solana, format Bitcoin).
   Komitmen di dalam aplikasi: kontak bisa ditambah dan whitelist dimatikan kapan saja.
+- **Mode kirim + 2FA Face ID:** di atas form Kirim (EVM, Bitcoin, Solana) pilih **Tinjau** (modal tinjau, seperti biasa) atau **Cepat** (satu klik langsung terkirim; otomatis kembali ke modal
+  jika ada peringatan: kirim ke diri sendiri, ke smart contract, sisa saldo di bawah rent Solana, atau fee Bitcoin > 10%). Saklar **Face ID** mewajibkan konfirmasi passkey sebelum kirim,
+  di kedua mode. Hasil passkey diverifikasi lokal (tanda tangan P-256, flag verifikasi biometrik, challenge, rpId, origin). Ditegakkan di fungsi penandatangan lewat bukti sekali pakai
+  (2 menit, untuk wallet + jaringan + penerima yang sama), jadi jalur kode lain tidak bisa mengirim tanpa konfirmasi. Mematikan Face ID juga meminta konfirmasi. Butuh HTTPS atau localhost,
+  iCloud Keychain aktif, dan tidak butuh iOS 18 (hanya passkey biasa). Swap tidak termasuk. Passkey hilang/rusak: "Lupakan" wallet lalu impor ulang akan mengatur ulang mode dan 2FA.
+  Seperti fitur lain, ini komitmen di dalam aplikasi, bukan perlindungan dari kode jahat yang berjalan di origin ini.
+- **Zcash (transparent saja, BETA):** jaringan "Zcash (transparent)" memakai alamat `t1…` dari recovery phrase yang sama (BIP-44 `m/44'/133'/0'/0/0`, satu alamat, kembalian ke alamat yang sama).
+  Kirim/terima/saldo/riwayat/Kontak/Goal/whitelist/2FA bekerja seperti Bitcoin dan Solana. Transaksi v5 ditandatangani lokal (secp256k1, SIGHASH_ALL ZIP-244), fee ZIP-317 (5000 zatoshi per aksi, min 2),
+  UTXO terkonfirmasi saja, dan isi transaksi dibongkar ulang dan dicocokkan dengan ringkasan sebelum disiarkan. **Tidak didukung:** alamat shielded (`zs1…`) dan unified (`u1…`) (ditolak dengan pesan jelas), serta testnet.
+  - Penyedia data bawaan: Blockchair (`https://api.blockchair.com/zcash`); server Blockbook Zcash sendiri bisa dipasang di "Cek koneksi dan endpoint". Alamat Anda terlihat oleh penyedia data.
+  - Saldo dan transaksi transparent **publik** di blockchain (tidak privat seperti shielded).
+  - **Perawatan:** branch ID konsensus ada di `src/chains/zcash/params.ts` dan HARUS diperbarui tiap Zcash network upgrade; transaksi dengan branch ID usang ditolak jaringan (dana aman, kirim gagal).
+  - Belum diuji ke jaringan sungguhan: coba dengan nominal kecil dulu.
 - **Riwayat tersinkron (terenkripsi):** setelah masuk (tab Goal), riwayat transaksi tersimpan di Supabase dan terlihat di perangkat mana pun yang membuka wallet
   yang sama. Dienkripsi di perangkat (AES-GCM, kunci diturunkan dari private key): server hanya melihat ciphertext, penanda wallet, chain id, dan waktu.
   Hash, alamat, jumlah, dan status tidak terbaca. Hanya pengiriman yang tercatat (swap belum). Jalankan ulang `supabase/schema.sql` untuk tabel `tx_history`.

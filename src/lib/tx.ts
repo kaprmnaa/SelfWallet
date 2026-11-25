@@ -13,6 +13,7 @@ import { trimAmount } from "./format";
 import type { Account } from "./vault";
 import { assertCanSpend } from "../goals/guard";
 import { assertRecipientAllowed } from "../contacts/guard";
+import { assertTxAuthorized } from "../txauth/store";
 
 export type Draft = {
   chain: ChainConfig;
@@ -124,6 +125,8 @@ export async function signAndSend(account: Account, prepared: Prepared): Promise
       ? { address: prepared.draft.token.address, amount: Number(formatUnits(prepared.value, prepared.draft.token.decimals)) }
       : undefined,
   });
+  // Terakhir: bukti Face ID dihabiskan hanya jika semua penjaga lain sudah lolos.
+  assertTxAuthorized(account, { kind: "evm", chainId: chain.chainId, to: prepared.recipient });
   const raw = await account.signTransaction(prepared.tx);
 
   // Cek integritas: yang ditandatangani harus sama dengan yang ditinjau pengguna.

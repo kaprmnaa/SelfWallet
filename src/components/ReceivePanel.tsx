@@ -46,6 +46,11 @@ export default function ReceivePanel({ address, chain }: { address: string; chai
               Hanya kirim <span className="text-zinc-200">{chain.symbol}</span> di jaringan{" "}
               <span className="text-zinc-200">{chain.name}</span>.
             </>
+          ) : kind === "zec" ? (
+            <>
+              Hanya alamat <span className="text-zinc-200">transparent</span> (t1…). Saldo dan transaksinya <span className="text-zinc-200">publik</span> di
+              blockchain. Alamat shielded (z/u) belum didukung: jangan kirim dari wallet lain ke alamat shielded dengan memakai alamat ini.
+            </>
           ) : kind === "sol" ? (
             <>
               Terima hanya SOL native di jaringan <span className="text-zinc-200">{chain.name}</span>. Token SPL belum

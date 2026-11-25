@@ -5,6 +5,7 @@ import type { Account } from "../../lib/vault";
 import { parseAmount } from "../../lib/tx";
 import { assertCanSpend } from "../../goals/guard";
 import { assertRecipientAllowed } from "../../contacts/guard";
+import { assertTxAuthorized } from "../../txauth/store";
 import {
   NEED_PHRASE,
   btcAccountNode,
@@ -89,6 +90,7 @@ export async function prepareBtc(
 export async function signAndSendBtc(account: Account, p: BtcPrepared): Promise<string> {
   assertRecipientAllowed("btc", p.to);
   await assertCanSpend(account, p.chain, { native: Number(formatUnits(p.amount + p.fee, 8)) });
+  assertTxAuthorized(account, { kind: "btc", chainId: p.chain.chainId, to: p.to });
   const seed = getSeed(account);
   if (!seed) throw new Error(NEED_PHRASE);
   const net = btcNet(p.chain.testnet);

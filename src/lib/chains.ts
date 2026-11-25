@@ -1,4 +1,4 @@
-export type ChainKind = "evm" | "btc" | "sol";
+export type ChainKind = "evm" | "btc" | "sol" | "zec";
 
 export type ChainConfig = {
   /** Kosong = "evm" (semua jaringan lama dan jaringan kustom). */
@@ -122,6 +122,17 @@ export const CHAINS: ChainConfig[] = [
     rpcUrls: ["https://solana-rpc.publicnode.com", "https://api.mainnet.solana.com", "https://api.mainnet-beta.solana.com"],
     explorer: "https://explorer.solana.com",
   },
+  {
+    // Zcash TRANSPARENT saja (t1…): alamat shielded (z/u) butuh bukti zk-SNARK dan tidak didukung.
+    // Base URL Blockchair; server Blockbook Zcash juga bisa dipasang lewat "Cek koneksi dan endpoint".
+    kind: "zec",
+    chainId: 900_000_201,
+    name: "Zcash (transparent)",
+    symbol: "ZEC",
+    testnet: false,
+    rpcUrls: ["https://api.blockchair.com/zcash"],
+    explorer: "https://blockchair.com/zcash",
+  },
 ];
 
 export const getChain = (id: number) => CHAINS.find((c) => c.chainId === id);
@@ -131,14 +142,14 @@ export const kindOf = (c: ChainConfig): ChainKind => c.kind ?? "evm";
 /** Label singkat di daftar jaringan: "chain 1" untuk EVM, "UTXO" untuk Bitcoin, "Ed25519" untuk Solana. */
 export function chainTag(c: ChainConfig): string {
   const k = kindOf(c);
-  return k === "evm" ? `chain ${c.chainId}` : k === "btc" ? "UTXO" : "Ed25519";
+  return k === "evm" ? `chain ${c.chainId}` : k === "btc" || k === "zec" ? "UTXO" : "Ed25519";
 }
 
 /** Tautan explorer; null jika jaringan kustom tidak punya explorer. Solana devnet butuh ?cluster=devnet. */
 export function explorerTx(c: ChainConfig, hash: string): string | null {
   if (!c.explorer) return null;
   const q = kindOf(c) === "sol" && c.testnet ? "?cluster=devnet" : "";
-  return `${c.explorer}/tx/${hash}${q}`;
+  return `${c.explorer}/${kindOf(c) === "zec" ? "transaction" : "tx"}/${hash}${q}`;
 }
 export function explorerAddress(c: ChainConfig, address: string): string | null {
   if (!c.explorer) return null;

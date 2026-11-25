@@ -12,7 +12,15 @@ import {
 import {
   allocate, checkWithdrawal, outgoingValue, setFunded, modeOf, isLockMode, lockGoals, poolCurrency,
 } from "../src/goals/allocation";
+import { blake2b } from "@noble/hashes/blake2b";
+import { sha256 as zsha256 } from "@noble/hashes/sha256";
+import { createBase58check } from "@scure/base";
+import { encodeP2pkh, encodeP2sh, parseRecipient, hash160, p2pkhScript } from "../src/chains/zcash/address";
+import { branchIdAt } from "../src/chains/zcash/params";
+import { MAX_INPUTS, MIN_CHANGE, compactSize, i64, parseV5, planSpend, serializeV5, sigHashV5, signV5, zip317Fee, type ZTx } from "../src/chains/zcash/tx";
 import { parseItem } from "../src/history/crypto";
+import { verifyAssertion, derToRaw, b64u } from "../src/txauth/webauthn";
+import { getTxSettings, setSendMode, clearTxAuth, assertTxAuthorized } from "../src/txauth/store";
 import { normalizeAddress, sameAddress, validateContact, isContact, isRecipientAllowed, type Contact } from "../src/contacts/logic";
 import { keyFromSecret, sealPassword, openPassword } from "../src/lib/biometric";
 import { hkdf32 } from "../src/lib/kdf";
@@ -359,6 +367,167 @@ ok("riwayat: chainId/ts tidak valid ditolak", parseItem({ ...HI, chainId: 1.5 })
   ok("whitelist: aktif -> alamat sendiri boleh", isRecipientAllowed(true, [], "evm", A2, A2.toLowerCase()));
   ok("whitelist: aktif -> alamat tak valid ditolak", !isRecipientAllowed(true, base, "evm", "ngawur"));
   ok("whitelist: kontak EVM tidak berlaku untuk jenis lain", !isRecipientAllowed(true, base, "sol", SOL));
+}
+
+/* ------------------------------------------------- 2FA kirim: verifikasi assertion */
+{
+  const enc = new TextEncoder();
+  const sha = async (u: Uint8Array) => new Uint8Array(await crypto.subtle.digest("SHA-256", u as unknown as BufferSource));
+  const rawToDer = (raw: Uint8Array) => {
+    const part = (x: Uint8Array) => { let i = 0; while (i < 31 && x[i] === 0) i++; let v = x.slice(i); if (v[0] & 0x80) v = new Uint8Array([0, ...v]); return [0x02, v.length, ...v]; };
+    const body = [...part(raw.slice(0, 32)), ...part(raw.slice(32))];
+    return new Uint8Array([0x30, body.length, ...body]);
+  };
+  const kp = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  const pub = new Uint8Array(await crypto.subtle.exportKey("spki", kp.publicKey));
+  const other = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  const RP = "kunci.example", ORIGIN = "https://kunci.example";
+  const challenge = crypto.getRandomValues(new Uint8Array(32));
+
+  async function make(o: { flags?: number; rp?: string; origin?: string; type?: string; chal?: Uint8Array; key?: CryptoKeyPair; tamper?: boolean } = {}) {
+    const ad = new Uint8Array(37);
+    ad.set(await sha(enc.encode(o.rp ?? RP)));
+    ad[32] = o.flags ?? 0x05; // UP + UV
+    const cdj = enc.encode(JSON.stringify({ type: o.type ?? "webauthn.get", challenge: b64u(o.chal ?? challenge), origin: o.origin ?? ORIGIN }));
+    const signed = new Uint8Array(ad.length + 32); signed.set(ad); signed.set(await sha(cdj), ad.length);
+    const raw = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, (o.key ?? kp).privateKey, signed));
+    if (o.tamper) raw[5] ^= 1;
+    return { pub, authenticatorData: ad, clientDataJSON: cdj, signature: rawToDer(raw), challenge, rpId: RP, origin: ORIGIN };
+  }
+  const rejects = async (input: Awaited<ReturnType<typeof make>>) => verifyAssertion(input).then(() => false, () => true);
+
+  ok("2fa: assertion sah diterima", await verifyAssertion(await make()).then(() => true, () => false));
+  ok("2fa: tanpa flag UV ditolak (tidak ada verifikasi biometrik)", await rejects(await make({ flags: 0x01 })));
+  ok("2fa: tanpa flag UP ditolak", await rejects(await make({ flags: 0x04 })));
+  ok("2fa: challenge lain ditolak (replay)", await rejects(await make({ chal: crypto.getRandomValues(new Uint8Array(32)) })));
+  ok("2fa: rpId lain ditolak", await rejects(await make({ rp: "jahat.example" })));
+  ok("2fa: origin lain ditolak", await rejects(await make({ origin: "https://jahat.example" })));
+  ok("2fa: jenis bukan webauthn.get ditolak", await rejects(await make({ type: "webauthn.create" })));
+  ok("2fa: ditandatangani kunci lain ditolak", await rejects(await make({ key: other })));
+  ok("2fa: tanda tangan diubah ditolak", await rejects(await make({ tamper: true })));
+  ok("2fa: DER dengan nol di depan & r pendek diproses benar", (() => { const raw = new Uint8Array(64); raw[31] = 1; raw[32] = 0x80; raw[63] = 2; const back = derToRaw(rawToDer(raw)); return back.every((v, i) => v === raw[i]); })());
+  ok("2fa: DER rusak ditolak", [new Uint8Array([1, 2, 3]), new Uint8Array([0x30, 2, 0x02, 0]), new Uint8Array(0)].every((d) => { try { derToRaw(d); return false; } catch { return true; } }));
+  ok("2fa: base64url tanpa padding", b64u(new Uint8Array([251, 255, 254])) === "-__-" && b64u(new Uint8Array([1])) === "AQ");
+}
+
+/* ------------------------------------------------- 2FA kirim: pengaturan + penegak */
+{
+  const W = "0xwallettes";
+  ok("2fa: bawaan = mode tinjau tanpa Face ID", getTxSettings(W).mode === "review" && getTxSettings(W).auth === false);
+  setSendMode(W, "fast");
+  ok("2fa: mode cepat tersimpan per wallet", getTxSettings(W).mode === "fast" && getTxSettings("0xlain").mode === "review");
+  ok("2fa: penegak tidak menghalangi saat 2FA mati", (() => { try { assertTxAuthorized({ address: W }, { kind: "evm", chainId: 1, to: "0xabc" }); return true; } catch { return false; } })());
+  clearTxAuth(W);
+  ok("2fa: hapus data wallet mengembalikan bawaan", getTxSettings(W).mode === "review");
+}
+
+/* ------------------------------------------------------------------ Zcash transparent */
+{
+  const te = new TextEncoder();
+  const hexOf = (u: Uint8Array) => Array.from(u, (b) => b.toString(16).padStart(2, "0")).join("");
+  const rnd20 = () => Uint8Array.from({ length: 20 }, () => Math.floor(Math.random() * 256));
+  const throws = (f: () => unknown) => { try { f(); return false; } catch { return true; } };
+
+  // --- alamat
+  ok("zec: prefix 1CB8 selalu menghasilkan 't1' (35 karakter)", Array.from({ length: 300 }, () => encodeP2pkh(rnd20())).every((a) => a.startsWith("t1") && a.length === 35));
+  ok("zec: prefix 1CBD selalu menghasilkan 't3' (35 karakter)", Array.from({ length: 300 }, () => encodeP2sh(rnd20())).every((a) => a.startsWith("t3") && a.length === 35));
+  const h = rnd20();
+  const a1 = encodeP2pkh(h);
+  const r1 = parseRecipient(a1);
+  ok("zec: parse t1 -> p2pkh, hash sama, script 25 byte", r1.type === "p2pkh" && hexOf(r1.hash) === hexOf(h) && r1.script.length === 25 && r1.script[0] === 0x76 && r1.script[24] === 0xac);
+  const r3 = parseRecipient(encodeP2sh(h));
+  ok("zec: parse t3 -> p2sh, script 23 byte (a9 14 .. 87)", r3.type === "p2sh" && r3.script.length === 23 && r3.script[0] === 0xa9 && r3.script[22] === 0x87);
+  ok("zec: spasi di sekitar alamat dipangkas", parseRecipient(`  ${a1} \n`).address === a1);
+  ok("zec: alamat shielded/unified ditolak dengan pesan jelas", ["zs1qqqqqqqqqqqq", "u1qqqqqqqqqqqq", "ztestsapling1qqqq", "tex1qqqqqqqq"].every((v) => { try { parseRecipient(v); return false; } catch (e) { return /shielded|unified/i.test((e as Error).message); } }));
+  ok("zec: checksum salah ditolak", throws(() => parseRecipient(a1.slice(0, -1) + (a1.endsWith("A") ? "B" : "A"))));
+  ok("zec: alamat Bitcoin ditolak", throws(() => parseRecipient("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2")) && throws(() => parseRecipient("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4")));
+  ok("zec: kosong/sampah ditolak", throws(() => parseRecipient("")) && throws(() => parseRecipient("0OIl")) && throws(() => parseRecipient("t1")));
+  const testnet = (() => { const p = new Uint8Array(22); p.set([0x1d, 0x25]); p.set(h, 2); return createBase58check(zsha256).encode(p); })();
+  ok("zec: alamat testnet (tm…) ditolak di mainnet", testnet.startsWith("tm") && throws(() => parseRecipient(testnet)));
+  ok("zec: hash160 pubkey G = 751e76e8…3bd6 (vektor baku)", hexOf(hash160(Uint8Array.from("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798".match(/../g)!, (x) => parseInt(x, 16)))) === "751e76e8199196d454941c45d1b3a323f1433bd6");
+
+  // --- parameter konsensus
+  ok("zec: branch ID per tinggi blok", branchIdAt(1_687_104) === 0xc2d6d0b4 && branchIdAt(2_726_399) === 0xc2d6d0b4 && branchIdAt(2_726_400) === 0xc8e71055 && branchIdAt(3_146_400) === 0x4dec4df0 && branchIdAt(9_000_000) === 0x4dec4df0);
+  ok("zec: tinggi di bawah NU5 ditolak", throws(() => branchIdAt(1_000_000)));
+
+  // --- fee ZIP-317
+  ok("zec: fee ZIP-317", zip317Fee(1, 1) === 10_000n && zip317Fee(1, 2) === 10_000n && zip317Fee(3, 2) === 15_000n && zip317Fee(2, 5) === 25_000n);
+
+  // --- pemilihan koin
+  const U = (v: number, i = 0) => ({ txid: i.toString(16).padStart(64, "0"), vout: i, value: BigInt(v) });
+  const one = planSpend([U(1_000_000)], 100_000n, false);
+  ok("zec: 1 input -> jumlah + kembalian + fee 10000", one.inputs.length === 1 && one.fee === 10_000n && one.change === 890_000n);
+  ok("zec: saldo pas (tanpa kembalian) menjadi fee", (() => { const p = planSpend([U(110_000)], 100_000n, false); return p.change === 0n && p.fee === 10_000n; })());
+  ok("zec: kembalian < MIN_CHANGE dilebur ke fee", (() => { const p = planSpend([U(115_000)], 100_000n, false); return p.change === 0n && p.fee === 15_000n; })());
+  ok("zec: kurang 1 zatoshi -> galat", throws(() => planSpend([U(109_999)], 100_000n, false)));
+  ok("zec: jumlah < 0.0001 ZEC ditolak", throws(() => planSpend([U(1_000_000)], 9_999n, false)));
+  ok("zec: tanpa UTXO ditolak", throws(() => planSpend([], 20_000n, false)));
+  ok("zec: gabung beberapa UTXO, terbesar dulu", (() => { const p = planSpend([U(50_000, 1), U(300_000, 2), U(40_000, 3)], 320_000n, false); return p.inputs.length === 2 && p.inputs[0].value === 300_000n; })());
+  ok("zec: maks = seluruh saldo - fee", (() => { const p = planSpend([U(50_000, 1), U(300_000, 2)], 0n, true); return p.amount === 350_000n - 10_000n && p.fee === 10_000n && p.change === 0n && p.inputs.length === 2; })());
+  ok("zec: maks dengan saldo terlalu kecil ditolak", throws(() => planSpend([U(15_000)], 0n, true)));
+  ok("zec: lebih dari MAX_INPUTS ditolak", throws(() => planSpend(Array.from({ length: MAX_INPUTS + 1 }, (_, i) => U(20_000, i)), 0n, true)));
+  ok("zec: uji acak 3000x: jumlah = input, fee wajar, kembalian valid", (() => {
+    for (let n = 0; n < 3000; n++) {
+      const us = Array.from({ length: 1 + Math.floor(Math.random() * 12) }, (_, i) => U(Math.floor(Math.random() * 5_000_000) + 1, i));
+      const amount = BigInt(Math.floor(Math.random() * 6_000_000) + 10_000);
+      let p;
+      try { p = planSpend(us, amount, false); } catch {
+        // boleh gagal hanya jika memang tidak ada awalan UTXO (terbesar dulu) yang cukup
+        const sorted = [...us].sort((a, b) => Number(b.value - a.value)); let s = 0n;
+        for (let k = 0; k < sorted.length; k++) { s += sorted[k].value; if (s >= amount + zip317Fee(k + 1, 1)) return false; }
+        continue;
+      }
+      const inSum = p.inputs.reduce((s, u) => s + u.value, 0n);
+      const outs = p.change > 0n ? 2 : 1;
+      if (inSum !== p.amount + p.fee + p.change) return false;
+      if (p.amount !== amount) return false;
+      if (p.fee < zip317Fee(p.inputs.length, outs)) return false;
+      if (p.fee > zip317Fee(p.inputs.length, 2) + MIN_CHANGE) return false;
+      if (p.change !== 0n && p.change < MIN_CHANGE) return false;
+      if (!p.inputs.every((i) => us.some((u) => u.txid === i.txid && u.vout === i.vout))) return false;
+    }
+    return true;
+  })());
+
+  // --- penyandian
+  ok("zec: compactSize batas 252/253/65535/65536", hexOf(compactSize(252)) === "fc" && hexOf(compactSize(253)) === "fdfd00" && hexOf(compactSize(0xffff)) === "fdffff" && hexOf(compactSize(0x10000)) === "fe00000100");
+  ok("zec: i64 menolak negatif dan melebihi 2^63-1", throws(() => i64(-1n)) && throws(() => i64(1n << 63n)) && hexOf(i64(1n)) === "0100000000000000");
+
+  const own = p2pkhScript(hash160(new Uint8Array(33).fill(2)));
+  const tx: ZTx = {
+    branchId: 0x4dec4df0, lockTime: 0, expiryHeight: 3_200_040,
+    inputs: [
+      { txid: "11".repeat(31) + "aa", vout: 1, value: 500_000n, script: own },
+      { txid: "22".repeat(31) + "bb", vout: 0, value: 700_000n, script: own },
+    ],
+    outputs: [{ value: 600_000n, script: r1.script }, { value: 590_000n, script: own }],
+  };
+  const raw = serializeV5(tx, [null, null]);
+  ok("zec: header v5 (05000080 0a27a726 + branch) dan akhiran 000000", hexOf(raw.slice(0, 12)) === "050000800a27a726f04dec4d" && hexOf(raw.slice(-3)) === "000000");
+  const back = parseV5(raw);
+  ok("zec: serialisasi lalu parse = data semula", back.branchId === tx.branchId && back.expiryHeight === tx.expiryHeight && back.inputs.length === 2 && back.inputs[0].txid === tx.inputs[0].txid && back.inputs[1].vout === 0 && back.outputs[0].value === 600_000n && hexOf(back.outputs[1].script) === hexOf(own) && back.shieldedEmpty);
+  ok("zec: txid ditulis urutan terbalik (byte pertama = byte terakhir txid)", raw[21] === 0xaa);
+  ok("zec: transaksi terpotong / kelebihan byte ditolak", throws(() => parseV5(raw.slice(0, raw.length - 1))) && throws(() => parseV5(Uint8Array.from([...raw, 0]))));
+  ok("zec: txid bukan 64 hex ditolak", throws(() => serializeV5({ ...tx, inputs: [{ ...tx.inputs[0], txid: "abc" }] }, [null])));
+
+  // --- sighash ZIP-244
+  const p16 = (s: string) => { const o = new Uint8Array(16); o.set(te.encode(s)); return o; };
+  ok("zec: konstanta ZIP-244 digest Sapling kosong cocok", hexOf(blake2b(new Uint8Array(0), { dkLen: 32, personalization: p16("ZTxIdSaplingHash") })) === "6f2fc8f98feafd94e74a0df4bed74391ee0b5a69945e4ced8ca8a095206f00ae");
+  ok("zec: konstanta ZIP-244 digest Orchard kosong cocok", hexOf(blake2b(new Uint8Array(0), { dkLen: 32, personalization: p16("ZTxIdOrchardHash") })) === "9fbe4ed13b0c08e671c11a3407d84e1117cd45028a2eee1b9feae78b48a6e2c1");
+  const s0 = sigHashV5(tx, 0), s1 = sigHashV5(tx, 1);
+  ok("zec: sighash 32 byte, deterministik, beda per input", s0.length === 32 && hexOf(s0) === hexOf(sigHashV5(tx, 0)) && hexOf(s0) !== hexOf(s1));
+  const changed = (f: (t: ZTx) => ZTx) => hexOf(sigHashV5(f(tx), 0)) !== hexOf(s0);
+  ok("zec: sighash berubah jika output/jumlah/branch/expiry/input diubah", changed((t) => ({ ...t, outputs: [{ ...t.outputs[0], value: 600_001n }, t.outputs[1]] }))
+    && changed((t) => ({ ...t, outputs: [{ ...t.outputs[0], script: own }, t.outputs[1]] }))
+    && changed((t) => ({ ...t, branchId: 0xc8e71055 }))
+    && changed((t) => ({ ...t, expiryHeight: t.expiryHeight + 1 }))
+    && changed((t) => ({ ...t, inputs: [{ ...t.inputs[0], value: 500_001n }, t.inputs[1]] }))
+    && changed((t) => ({ ...t, inputs: [t.inputs[0], { ...t.inputs[1], vout: 9 }] })));
+
+  // --- tanda tangan (stub di sandbox): struktur scriptSig
+  const pub = new Uint8Array(33).fill(2);
+  const ps = parseV5(signV5(tx, new Uint8Array(32).fill(1), pub));
+  ok("zec: transaksi bertanda tangan: scriptSig terisi per input, output tak berubah", ps.inputs.every((i) => i.scriptSigLen > 34 && i.scriptSigLen <= 107) && ps.outputs.length === 2 && ps.outputs[0].value === 600_000n && ps.shieldedEmpty);
 }
 
 laneTest().then(() => {

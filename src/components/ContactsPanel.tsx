@@ -6,8 +6,8 @@ import { errMsg, shortAddr } from "../lib/format";
 import WalletAvatar from "./WalletAvatar";
 import { Button, CopyButton, Field, Notice, inputCls } from "./ui";
 
-const KINDS: ContactKind[] = ["evm", "btc", "sol"];
-const PLACEHOLDER: Record<ContactKind, string> = { evm: "0x…", btc: "bc1q…", sol: "Alamat Solana…" };
+const KINDS: ContactKind[] = ["evm", "btc", "sol", "zec"];
+const PLACEHOLDER: Record<ContactKind, string> = { evm: "0x…", btc: "bc1q…", sol: "Alamat Solana…", zec: "t1…" };
 
 export default function ContactsPanel({ kind: currentKind }: { kind: ContactKind }) {
   const contacts = useContacts();
@@ -81,7 +81,7 @@ export default function ContactsPanel({ kind: currentKind }: { kind: ContactKind
           <Field label="Nama">
             <input value={name} onChange={(e) => setName(e.target.value)} maxLength={24} autoFocus className={inputCls} />
           </Field>
-          <div className="grid grid-cols-3 gap-1 glass-field rounded-xl border border-white/10 p-0.5 text-xs" role="group" aria-label="Jaringan">
+          <div className="grid grid-cols-4 gap-1 glass-field rounded-xl border border-white/10 p-0.5 text-xs" role="group" aria-label="Jaringan">
             {KINDS.map((k) => (
               <button
                 key={k}

@@ -6,8 +6,9 @@ import { tokenBalance, type TokenInfo } from "./tokens";
 import { nativePrices, tokenPrices, type Price } from "./prices";
 import { useVisibleInterval } from "./visibility";
 import type { Account } from "./vault";
-import { solAccount } from "../core/derive";
+import { solAccount, zecAccount } from "../core/derive";
 import { scanBtc } from "../chains/bitcoin/account";
+import { zecBalance } from "../chains/zcash/provider";
 import { solBalance } from "../chains/solana/rpc";
 
 export type PortfolioRow = {
@@ -53,6 +54,16 @@ export async function rowsFor(chain: ChainConfig, account: Account, allTokens: R
       const scan = await scanBtc(chain, account);
       if (!scan) return [{ ...base(chain), note: "perlu recovery phrase" }];
       return [{ ...base(chain), amount: formatUnits(scan.total, 8) }];
+    } catch {
+      return [{ ...base(chain), error: true }];
+    }
+  }
+
+  if (kind === "zec") {
+    const z = zecAccount(account);
+    if (!z) return [{ ...base(chain), note: "perlu recovery phrase" }];
+    try {
+      return [{ ...base(chain), amount: formatUnits((await zecBalance(chain, z.address)).total, 8) }];
     } catch {
       return [{ ...base(chain), error: true }];
     }

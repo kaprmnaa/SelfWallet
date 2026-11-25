@@ -11,6 +11,8 @@ import { useLockInfo } from "../goals/useLock";
 import GoalLockNotice from "./GoalLockNotice";
 import { useRecipient } from "../contacts/useRecipient";
 import RecipientField from "./RecipientField";
+import { requireTxAuth, useTxSettings, walletIdOf } from "../txauth/store";
+import SendModeBar from "./SendModeBar";
 import { Button, Field, Modal, Notice, StatusDot, inputCls } from "./ui";
 
 const STALE_MS = 90_000;
@@ -43,6 +45,8 @@ export default function SendPanel({
   const [amount, setAmount] = useState("");
   const [err, setErr] = useState("");
   const [preparing, setPreparing] = useState(false);
+  const ts = useTxSettings(walletIdOf(account));
+  const fast = ts.mode === "fast";
   const [prepared, setPrepared] = useState<Prepared | null>(null);
   const rc = useRecipient("evm", prepared?.recipient ?? "", address);
   const [sending, setSending] = useState(false);
@@ -66,16 +70,43 @@ export default function SendPanel({
 
   async function review(e: FormEvent) {
     e.preventDefault();
+    if (guard.current) return;
     setErr("");
-    setPreparing(true);
+    guard.current = true;
     try {
+      // Mode cepat + Face ID: konfirmasi DULU (harus dalam gestur sentuhan), lalu siapkan dan kirim.
+      if (fast && ts.auth) await requireTxAuth(account, { kind: "evm", chainId: chain.chainId, to });
+      setPreparing(true);
       setModalErr("");
-      setPrepared(await prepare({ chain, from: address, to, amount, token }));
+      const p = await prepare({ chain, from: address, to, amount, token });
+      // Cepat hanya jika tidak ada peringatan; selain itu tetap tampilkan modal tinjau.
+      if (fast && !p.toSelf && !(p.recipientIsContract && !token)) await send(p);
+      else setPrepared(p);
     } catch (ex) {
       setErr(errMsg(ex));
     } finally {
+      guard.current = false;
       setPreparing(false);
     }
+  }
+
+  async function send(p: Prepared) {
+    const hash = await signAndSend(account, p);
+    addHistory({
+      hash,
+      chainId: chain.chainId,
+      from: address,
+      to: p.recipient,
+      amount: p.draft.amount,
+      symbol,
+      ts: Date.now(),
+      status: "pending",
+    });
+    setLastHash(hash);
+    setPrepared(null);
+    setTo("");
+    setAmount("");
+    onSent();
   }
 
   async function confirm() {
@@ -88,22 +119,9 @@ export default function SendPanel({
     setSending(true);
     setModalErr("");
     try {
-      const hash = await signAndSend(account, prepared);
-      addHistory({
-        hash,
-        chainId: chain.chainId,
-        from: address,
-        to: prepared.recipient,
-        amount: prepared.draft.amount,
-        symbol,
-        ts: Date.now(),
-        status: "pending",
-      });
-      setLastHash(hash);
-      setPrepared(null);
-      setTo("");
-      setAmount("");
-      onSent();
+      await requireTxAuth(account, { kind: "evm", chainId: chain.chainId, to: prepared.recipient });
+      if (Date.now() - prepared.createdAt > STALE_MS) throw new Error("Estimasi biaya sudah kedaluwarsa. Tutup, lalu tinjau ulang.");
+      await send(prepared);
     } catch (ex) {
       setModalErr(errMsg(ex));
     } finally {
@@ -115,6 +133,7 @@ export default function SendPanel({
   return (
     <div className="grid gap-6">
       {lock.active && <GoalLockNotice info={lock} chain={chain} />}
+      <SendModeBar account={account} />
       <form onSubmit={review} className="grid gap-5">
         <Field label="Aset">
           <select value={asset} onChange={(e) => { setAsset(e.target.value); setAmount(""); }} className={inputCls}>
@@ -143,7 +162,7 @@ export default function SendPanel({
           </div>
         </Field>
         <Button type="submit" disabled={!to || !amount || lock.blocked || rcp.blocked} busy={preparing}>
-          {preparing ? "Menghitung biaya…" : "Tinjau transaksi"}
+          {preparing ? (fast ? "Mengirim…" : "Menghitung biaya…") : fast ? "Kirim" : "Tinjau transaksi"}
         </Button>
       </form>
 

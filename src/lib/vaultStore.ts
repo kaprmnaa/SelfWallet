@@ -1,4 +1,5 @@
 import { clearBiometric, removeBiometric } from "./biometric";
+import { clearAllTxAuth, clearTxAuth } from "../txauth/store";
 import { getAddress } from "ethers";
 import { load, remove, save } from "./storage";
 
@@ -89,10 +90,12 @@ export function renameSaved(id: string, name: string) {
 export function removeSaved(id: string) {
   save(KEY, loadWallets().filter((w) => w.id !== id));
   removeBiometric(id); // data Face ID wallet ini tidak boleh tertinggal
+  clearTxAuth(id); // mode kirim + 2FA wallet ini ikut dihapus
 }
 
 export function clearWallets() {
   remove(KEY);
   clearBiometric();
+  clearAllTxAuth();
   remove("vault");
 }

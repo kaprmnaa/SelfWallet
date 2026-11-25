@@ -6,6 +6,7 @@ import type { Account } from "../../lib/vault";
 import { parseAmount } from "../../lib/tx";
 import { assertCanSpend } from "../../goals/guard";
 import { assertRecipientAllowed } from "../../contacts/guard";
+import { assertTxAuthorized } from "../../txauth/store";
 import { NEED_PHRASE, solAccount } from "../../core/derive";
 import { assertSolCluster, solBalance, solRpc } from "./rpc";
 
@@ -133,6 +134,7 @@ export async function prepareSol(
 export async function signAndSendSol(account: Account, p: SolPrepared): Promise<string> {
   assertRecipientAllowed("sol", p.to, p.from);
   await assertCanSpend(account, p.chain, { native: Number(formatUnits(p.lamports + p.fee, 9)) });
+  assertTxAuthorized(account, { kind: "sol", chainId: p.chain.chainId, to: p.to });
   const sol = solAccount(account);
   if (!sol) throw new Error(NEED_PHRASE);
   verifyMessage(p.message, sol.publicKey, base58.decode(p.to), p.lamports);

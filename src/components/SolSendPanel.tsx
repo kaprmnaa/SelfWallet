@@ -10,6 +10,8 @@ import { useLockInfo } from "../goals/useLock";
 import GoalLockNotice from "./GoalLockNotice";
 import { useRecipient } from "../contacts/useRecipient";
 import RecipientField from "./RecipientField";
+import { requireTxAuth, useTxSettings, walletIdOf } from "../txauth/store";
+import SendModeBar from "./SendModeBar";
 import { Button, DetailRow, Field, Modal, Notice, StatusDot, inputCls } from "./ui";
 
 const STALE_MS = 45_000; // blockhash Solana kedaluwarsa dalam kurang dari ~90 detik
@@ -33,6 +35,8 @@ export default function SolSendPanel({
   const [max, setMax] = useState(false);
   const [err, setErr] = useState("");
   const [preparing, setPreparing] = useState(false);
+  const ts = useTxSettings(walletIdOf(account));
+  const fast = ts.mode === "fast";
   const [prepared, setPrepared] = useState<SolPrepared | null>(null);
   const rc = useRecipient("sol", prepared?.to ?? "", owner);
   const [sending, setSending] = useState(false);
@@ -46,16 +50,44 @@ export default function SolSendPanel({
 
   async function review(e: FormEvent) {
     e.preventDefault();
+    if (guard.current) return;
     setErr("");
     setModalErr("");
-    setPreparing(true);
+    guard.current = true;
     try {
-      setPrepared(await prepareSol(chain, account, { to, amount, max }));
+      // Mode cepat + Face ID: konfirmasi DULU (harus dalam gestur sentuhan), lalu siapkan dan kirim.
+      if (fast && ts.auth) await requireTxAuth(account, { kind: "sol", chainId: chain.chainId, to });
+      setPreparing(true);
+      const p = await prepareSol(chain, account, { to, amount, max });
+      // Cepat hanya jika tidak ada peringatan (sisa saldo di bawah rent); selain itu tampilkan modal tinjau.
+      if (fast && !(p.remaining > 0n && p.remaining < p.minRent)) await send(p);
+      else setPrepared(p);
     } catch (ex) {
       setErr(errMsg(ex));
     } finally {
+      guard.current = false;
       setPreparing(false);
     }
+  }
+
+  async function send(p: SolPrepared) {
+    const sig = await signAndSendSol(account, p);
+    addHistory({
+      hash: sig,
+      chainId: chain.chainId,
+      from: owner,
+      to: p.to,
+      amount: fmt(p.lamports),
+      symbol: chain.symbol,
+      ts: Date.now(),
+      status: "pending",
+    });
+    setLastTx(sig);
+    setPrepared(null);
+    setTo("");
+    setAmount("");
+    setMax(false);
+    onSent();
   }
 
   async function confirm() {
@@ -68,23 +100,9 @@ export default function SolSendPanel({
     setSending(true);
     setModalErr("");
     try {
-      const sig = await signAndSendSol(account, prepared);
-      addHistory({
-        hash: sig,
-        chainId: chain.chainId,
-        from: owner,
-        to: prepared.to,
-        amount: fmt(prepared.lamports),
-        symbol: chain.symbol,
-        ts: Date.now(),
-        status: "pending",
-      });
-      setLastTx(sig);
-      setPrepared(null);
-      setTo("");
-      setAmount("");
-      setMax(false);
-      onSent();
+      await requireTxAuth(account, { kind: "sol", chainId: chain.chainId, to: prepared.to });
+      if (Date.now() - prepared.createdAt > STALE_MS) throw new Error("Blockhash sudah kedaluwarsa. Tutup, lalu tinjau ulang.");
+      await send(prepared);
     } catch (ex) {
       setModalErr(errMsg(ex));
     } finally {
@@ -96,6 +114,7 @@ export default function SolSendPanel({
   return (
     <div className="grid gap-6">
       {lock.active && <GoalLockNotice info={lock} chain={chain} />}
+      <SendModeBar account={account} />
       <form onSubmit={review} className="grid gap-5">
         <RecipientField kind="sol" value={to} onChange={setTo} placeholder="Alamat Solana…" hint="Alamat Solana (Base58, 32 byte)." self={owner} />
         <Field label={`Jumlah (${chain.symbol})`} error={err}>
@@ -115,7 +134,7 @@ export default function SolSendPanel({
           </div>
         </Field>
         <Button type="submit" disabled={!to || (!max && !amount) || lock.blocked || rcp.blocked} busy={preparing}>
-          {preparing ? "Menyiapkan transaksi…" : "Tinjau transaksi"}
+          {preparing ? (fast ? "Mengirim…" : "Menyiapkan transaksi…") : fast ? "Kirim" : "Tinjau transaksi"}
         </Button>
       </form>
 

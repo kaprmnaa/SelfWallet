@@ -303,3 +303,20 @@ export function DetailRow({ k, children }: { k: string; children: ReactNode }) {
     </div>
   );
 }
+
+/** Saklar bergaya kaca (role=switch). */
+export function Switch({ checked, onChange, label, disabled }: { checked: boolean; onChange: () => void; label: string; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onChange}
+      className={`relative h-7 w-12 shrink-0 rounded-full border border-white/10 transition-colors duration-300 disabled:opacity-50 ${checked ? "glass-lens" : "glass-field"}`}
+    >
+      <span className={`absolute top-0.5 size-6 rounded-full bg-zinc-50 shadow transition-[left] duration-300 ${checked ? "left-[22px]" : "left-0.5"}`} />
+    </button>
+  );
+}

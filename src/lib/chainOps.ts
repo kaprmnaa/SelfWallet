@@ -3,6 +3,7 @@ import { checkReceipt } from "./tx";
 import { withProvider } from "./rpc";
 import { btcTip, btcTxStatus } from "../chains/bitcoin/esplora";
 import { solSlot, solTxStatus } from "../chains/solana/rpc";
+import { zecTip, zecTxStatus } from "../chains/zcash/provider";
 
 /** Status transaksi untuk semua jenis jaringan. */
 export async function checkTx(chain: ChainConfig, hash: string): Promise<"pending" | "success" | "failed"> {
@@ -11,6 +12,8 @@ export async function checkTx(chain: ChainConfig, hash: string): Promise<"pendin
       return btcTxStatus(chain, hash);
     case "sol":
       return solTxStatus(chain, hash);
+    case "zec":
+      return zecTxStatus(chain, hash);
     default:
       return checkReceipt(chain, hash);
   }
@@ -23,6 +26,8 @@ export async function getTip(chain: ChainConfig): Promise<number> {
       return btcTip(chain);
     case "sol":
       return solSlot(chain);
+    case "zec":
+      return zecTip(chain);
     default:
       return withProvider(chain, (p) => p.getBlockNumber());
   }

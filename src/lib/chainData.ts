@@ -6,8 +6,9 @@ import { useVisibleInterval } from "./visibility";
 import { errMsg } from "./format";
 import { explainError } from "./explain";
 import type { Account } from "./vault";
-import { NEED_PHRASE, btcAccountNode, btcAddressAt, btcNet, getSeed, solAccount } from "../core/derive";
+import { NEED_PHRASE, btcAccountNode, btcAddressAt, btcNet, getSeed, solAccount, zecAccount } from "../core/derive";
 import { scanBtc } from "../chains/bitcoin/account";
+import { zecBalance } from "../chains/zcash/provider";
 import { solBalance } from "../chains/solana/rpc";
 
 type Identity = { address: string; owner: string } | { unsupported: string } | { fail: string };
@@ -27,6 +28,11 @@ function identity(chain: ChainConfig, account: Account): Identity {
       const s = solAccount(account);
       if (!s) return { unsupported: NEED_PHRASE };
       return { address: s.address, owner: s.address };
+    }
+    if (kind === "zec") {
+      const z = zecAccount(account);
+      if (!z) return { unsupported: NEED_PHRASE };
+      return { address: z.address, owner: z.address };
     }
     return { address: account.address, owner: account.address };
   } catch (e) {
@@ -50,6 +56,10 @@ async function load(chain: ChainConfig, account: Account, force: boolean, fallba
   }
   if (kind === "sol") {
     return { address: fallbackAddress, balance: formatUnits(await solBalance(chain, fallbackAddress), 9), pending: null, note: null };
+  }
+  if (kind === "zec") {
+    const b = await zecBalance(chain, fallbackAddress, force);
+    return { address: fallbackAddress, balance: formatUnits(b.total, 8), pending: b.unconfirmed > 0n ? formatUnits(b.unconfirmed, 8) : null, note: null };
   }
   const b = await withProvider(chain, (p) => p.getBalance(account.address));
   return { address: account.address, balance: formatEther(b), pending: null, note: null };

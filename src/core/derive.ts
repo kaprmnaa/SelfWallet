@@ -7,6 +7,7 @@ import { ed25519 } from "@noble/curves/ed25519";
 import { base58 } from "@scure/base";
 import * as btc from "@scure/btc-signer";
 import type { Account } from "../lib/vault";
+import { encodeP2pkh, hash160 } from "../chains/zcash/address";
 
 /**
  * Satu recovery phrase untuk semua jaringan. Seed BIP-39 dihitung dari mnemonic di dalam
@@ -17,7 +18,7 @@ import type { Account } from "../lib/vault";
  * tidak tersedia untuk wallet tersebut.
  */
 export const NEED_PHRASE =
-  "Wallet ini diimpor dari private key, tanpa recovery phrase. Bitcoin dan Solana hanya tersedia untuk wallet yang dibuat atau diimpor dengan recovery phrase.";
+  "Wallet ini diimpor dari private key, tanpa recovery phrase. Bitcoin, Solana, dan Zcash hanya tersedia untuk wallet yang dibuat atau diimpor dengan recovery phrase.";
 
 const seedCache = new WeakMap<object, Uint8Array>();
 
@@ -93,5 +94,25 @@ export function solAccount(account: Account): SolAccount | null {
   const publicKey = ed25519.getPublicKey(privateKey);
   const acc = { address: base58.encode(publicKey), publicKey, privateKey };
   solCache.set(account, acc);
+  return acc;
+}
+
+/* -------------------------------------------------------------------- Zcash */
+
+/** Zcash transparent: BIP-44 coin type 133, alamat pertama. Satu alamat (kembalian kembali ke alamat yang sama). */
+export const ZEC_PATH = "m/44'/133'/0'/0/0";
+
+export type ZecAccount = { address: string; publicKey: Uint8Array; privateKey: Uint8Array };
+const zecCache = new WeakMap<object, ZecAccount>();
+
+export function zecAccount(account: Account): ZecAccount | null {
+  const hit = zecCache.get(account);
+  if (hit) return hit;
+  const seed = getSeed(account);
+  if (!seed) return null;
+  const node = HDKey.fromMasterSeed(seed).derive(ZEC_PATH);
+  if (!node.privateKey || !node.publicKey) throw new Error("Derivasi Zcash gagal.");
+  const acc = { address: encodeP2pkh(hash160(node.publicKey)), publicKey: node.publicKey, privateKey: node.privateKey };
+  zecCache.set(account, acc);
   return acc;
 }

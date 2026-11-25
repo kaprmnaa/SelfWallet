@@ -32,6 +32,7 @@ const NATIVE_ID: Record<number, string> = {
   137: "polygon-ecosystem-token",
   900_000_001: "bitcoin",
   900_000_101: "solana",
+  900_000_201: "zcash",
 };
 const PLATFORM: Record<number, string> = {
   1: "ethereum",

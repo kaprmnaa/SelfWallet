@@ -1,8 +1,9 @@
 import { getAddress } from "ethers";
 import { base58 } from "@scure/base";
+import { parseRecipient } from "../chains/zcash/address";
 
 /** Logika murni buku alamat (tanpa React/jaringan) agar mudah diuji. */
-export type ContactKind = "evm" | "btc" | "sol";
+export type ContactKind = "evm" | "btc" | "sol" | "zec";
 
 export type Contact = {
   id: string;
@@ -16,7 +17,7 @@ export type Contact = {
 };
 
 export const MAX_CONTACTS = 200;
-export const KIND_NAME: Record<ContactKind, string> = { evm: "EVM", btc: "Bitcoin", sol: "Solana" };
+export const KIND_NAME: Record<ContactKind, string> = { evm: "EVM", btc: "Bitcoin", sol: "Solana", zec: "Zcash" };
 
 const BECH32 = /^(bc1|tb1|bcrt1)[0-9a-z]{8,87}$/;
 const BASE58_BTC = /^[13mn2][1-9A-HJ-NP-Za-km-z]{25,39}$/;
@@ -33,6 +34,7 @@ export function normalizeAddress(kind: ContactKind, raw: string): string {
       throw new Error("Checksum alamat EVM salah. Periksa kembali alamatnya.");
     }
   }
+  if (kind === "zec") return parseRecipient(a).address; // hanya t1…/t3… (shielded ditolak dengan pesan jelas)
   if (kind === "sol") {
     let b: Uint8Array;
     try {
@@ -93,7 +95,7 @@ export function isContact(x: unknown): x is Contact {
   const o = x as Contact;
   if (!o || typeof o !== "object") return false;
   if (typeof o.id !== "string" || typeof o.name !== "string" || typeof o.address !== "string") return false;
-  if (o.kind !== "evm" && o.kind !== "btc" && o.kind !== "sol") return false;
+  if (o.kind !== "evm" && o.kind !== "btc" && o.kind !== "sol" && o.kind !== "zec") return false;
   if (o.note !== undefined && typeof o.note !== "string") return false;
   return Number.isFinite(o.createdAt) && Number.isFinite(o.updatedAt) && o.name.length <= 24 && o.address.length <= 100;
 }

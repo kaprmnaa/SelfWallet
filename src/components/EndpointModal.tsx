@@ -85,7 +85,9 @@ export default function EndpointModal({ open, onClose, chain }: { open: boolean;
                 ? "Base URL Esplora, mis. server Esplora/mempool milik Anda."
                 : chain.kind === "sol"
                   ? "URL RPC Solana (mis. dari Helius, QuickNode, Alchemy)."
-                  : "URL JSON-RPC jaringan ini."
+                  : chain.kind === "zec"
+                    ? "Base URL Blockchair (…/zcash) atau server Blockbook Zcash milik Anda."
+                    : "URL JSON-RPC jaringan ini."
             }
             error={err}
           >

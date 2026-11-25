@@ -1,13 +1,14 @@
 import { kindOf, type ChainConfig } from "./chains";
 import { parseRpcUrl } from "./customChains";
 import { probeRpc } from "./rpc";
+import { zecTip } from "../chains/zcash/provider";
 import { btcTip } from "../chains/bitcoin/esplora";
 import { assertSolCluster } from "../chains/solana/rpc";
 
 /** Rapikan URL endpoint. Esplora (Bitcoin) memakai base URL tanpa garis miring di akhir. */
 export function normalizeEndpoint(chain: ChainConfig, raw: string): string {
   const u = parseRpcUrl(raw);
-  return kindOf(chain) === "btc" ? u.replace(/\/+$/, "") : u;
+  return kindOf(chain) === "btc" || kindOf(chain) === "zec" ? u.replace(/\/+$/, "") : u;
 }
 
 /** Uji satu endpoint untuk jaringan ini. Mengembalikan latensi (ms) atau melempar galat yang jelas. */
@@ -20,6 +21,9 @@ export async function testEndpoint(chain: ChainConfig, url: string): Promise<num
       break;
     case "sol":
       await assertSolCluster(probe); // memastikan cluster (genesis hash) cocok
+      break;
+    case "zec":
+      await zecTip(probe); // tinggi blok valid = endpoint Zcash hidup
       break;
     default: {
       const id = await probeRpc(url);
