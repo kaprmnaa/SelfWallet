@@ -86,7 +86,7 @@ export default function EndpointModal({ open, onClose, chain }: { open: boolean;
                 : chain.kind === "sol"
                   ? "URL RPC Solana (mis. dari Helius, QuickNode, Alchemy)."
                   : chain.kind === "zec"
-                    ? "Base URL Blockchair (…/zcash) atau server Blockbook Zcash milik Anda."
+                    ? "Node Zebra JSON-RPC (mis. …gateway.tatum.io, tambah ?key=API_KEY), Blockchair (…/zcash), atau Blockbook Zcash. gRPC lightwalletd tidak didukung."
                     : "URL JSON-RPC jaringan ini."
             }
             error={err}

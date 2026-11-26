@@ -83,7 +83,12 @@ atau koin native, termasuk testnet untuk uji coba). Progres, grafik perjalanan, 
 - **Zcash (transparent saja, BETA):** jaringan "Zcash (transparent)" memakai alamat `t1…` dari recovery phrase yang sama (BIP-44 `m/44'/133'/0'/0/0`, satu alamat, kembalian ke alamat yang sama).
   Kirim/terima/saldo/riwayat/Kontak/Goal/whitelist/2FA bekerja seperti Bitcoin dan Solana. Transaksi v5 ditandatangani lokal (secp256k1, SIGHASH_ALL ZIP-244), fee ZIP-317 (5000 zatoshi per aksi, min 2),
   UTXO terkonfirmasi saja, dan isi transaksi dibongkar ulang dan dicocokkan dengan ringkasan sebelum disiarkan. **Tidak didukung:** alamat shielded (`zs1…`) dan unified (`u1…`) (ditolak dengan pesan jelas), serta testnet.
-  - Penyedia data bawaan: Blockchair (`https://api.blockchair.com/zcash`); server Blockbook Zcash sendiri bisa dipasang di "Cek koneksi dan endpoint". Alamat Anda terlihat oleh penyedia data.
+  - Penyedia data (urutan bawaan, otomatis pindah jika gagal): (1) JSON-RPC Zebra `https://zcash-mainnet-zebrad.gateway.tatum.io`, (2) Blockchair `https://api.blockchair.com/zcash`.
+    Jenis API dikenali dari URL: host `*.gateway.tatum.io` atau akhiran `#jsonrpc` = JSON-RPC (node Zebra, atau zcashd dengan `-addressindex`); `blockchair.com` = Blockchair; selain itu dianggap Blockbook.
+    API key lewat `?key=KUNCI` pada URL endpoint (dikirim sebagai header `x-api-key`, tidak ikut di URL; tersimpan di browser ini). **lightwalletd (gRPC, mis. `:9067`) tidak bisa dipakai langsung dari browser.**
+    Endpoint JSON-RPC hanya melihat UTXO terkonfirmasi (kembalian baru muncul setelah terkonfirmasi). Browser harus diizinkan CORS oleh penyedia (header `x-api-key` memicu preflight).
+    Penyedia gratis membatasi laju (Blockchair: HTTP 430 memblokir IP sementara). Aplikasi memakai cache, pembatas laju, jeda otomatis, dan menampilkan saldo terakhir yang berhasil dimuat.
+    Alamat Anda terlihat oleh penyedia data. Penjelajah blok bawaan: `https://blockexplorer.one/zcash/mainnet` (alternatif: `https://mainnet.zcashexplorer.app`).
   - Saldo dan transaksi transparent **publik** di blockchain (tidak privat seperti shielded).
   - **Perawatan:** branch ID konsensus ada di `src/chains/zcash/params.ts` dan HARUS diperbarui tiap Zcash network upgrade; transaksi dengan branch ID usang ditolak jaringan (dana aman, kirim gagal).
   - Belum diuji ke jaringan sungguhan: coba dengan nominal kecil dulu.

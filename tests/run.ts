@@ -18,6 +18,7 @@ import { createBase58check } from "@scure/base";
 import { encodeP2pkh, encodeP2sh, parseRecipient, hash160, p2pkhScript } from "../src/chains/zcash/address";
 import { branchIdAt } from "../src/chains/zcash/params";
 import { MAX_INPUTS, MIN_CHANGE, compactSize, i64, parseV5, planSpend, serializeV5, sigHashV5, signV5, zip317Fee, type ZTx } from "../src/chains/zcash/tx";
+import { zecBalance, zecBalanceOrStale, zecBroadcast, zecTip, zecTxStatus } from "../src/chains/zcash/provider";
 import { parseItem } from "../src/history/crypto";
 import { verifyAssertion, derToRaw, b64u } from "../src/txauth/webauthn";
 import { getTxSettings, setSendMode, clearTxAuth, assertTxAuthorized } from "../src/txauth/store";
@@ -528,6 +529,132 @@ ok("riwayat: chainId/ts tidak valid ditolak", parseItem({ ...HI, chainId: 1.5 })
   const pub = new Uint8Array(33).fill(2);
   const ps = parseV5(signV5(tx, new Uint8Array(32).fill(1), pub));
   ok("zec: transaksi bertanda tangan: scriptSig terisi per input, output tak berubah", ps.inputs.every((i) => i.scriptSigLen > 34 && i.scriptSigLen <= 107) && ps.outputs.length === 2 && ps.outputs[0].value === 600_000n && ps.shieldedEmpty);
+}
+
+/* ------------------------------------------------- Zcash: penyedia data (fetch palsu) */
+{
+const zchain = { chainId: 900_000_201, name: "Zcash", symbol: "ZEC", testnet: false, rpcUrls: ["https://api.blockchair.com/zcash?key=SECRET"], kind: "zec" } as never;
+const ADDR = "t1abc";
+let zcalls: string[] = []; let zmode: "ok" | "430" | "429" | "net" = "ok";
+const zbody = (o: unknown) => JSON.stringify(o);
+const realFetch = globalThis.fetch;
+globalThis.fetch = (async (url: string) => {
+  zcalls.push(String(url));
+  if (zmode === "430") return new Response(zbody({ data: null, context: { code: 430, error: "Your IP address is temporary blacklisted due to exceeding" } }), { status: 430 });
+  if (zmode === "429") return new Response("slow down", { status: 429, headers: { "retry-after": "2" } });
+  if (zmode === "net") throw new TypeError("Failed to fetch");
+  if (String(url).includes("/stats")) return new Response(zbody({ data: { blocks: 3_610_156 } }));
+  return new Response(zbody({ data: { [ADDR]: { address: { balance: 150000, unspent_output_count: 1 }, utxo: [{ block_id: 3610000, transaction_hash: "ab".repeat(32), index: 0, value: 150000 }] } } }));
+}) as never;
+
+const bal1 = await zecBalance(zchain, ADDR);
+ok("provider: saldo dimuat, UTXO terkonfirmasi", bal1.total === 150000n && bal1.confirmed === 150000n && bal1.utxos.length === 1);
+ok("provider: API key pada URL dipertahankan (?key=) dan path benar", zcalls[0] === "https://api.blockchair.com/zcash/dashboards/address/t1abc?key=SECRET");
+zcalls = [];
+await zecBalance(zchain, ADDR); await zecBalance(zchain, ADDR);
+ok("provider: cache 45 dtk -> tidak ada permintaan ulang", zcalls.length === 0);
+
+// tip: cache + penggabungan permintaan serentak
+const [t1, t2, t3] = await Promise.all([zecTip(zchain), zecTip(zchain), zecTip(zchain)]);
+ok("provider: tinggi blok, 3 pemanggil serentak = 1 permintaan", t1 === 3_610_156 && t2 === t1 && t3 === t1 && zcalls.length === 1);
+zcalls = [];
+await zecTip(zchain);
+ok("provider: tip di-cache 30 dtk", zcalls.length === 0);
+
+// 430: pemblokiran IP -> jeda panjang, tidak menghantam lagi
+zmode = "430";
+const forced = await zecBalance(zchain, ADDR, true).then(() => "ok", (e) => String(e.message));
+ok("provider: HTTP 430 -> pesan jelas (diblokir sementara, jeda 5 menit, saran endpoint/API key)", /430/.test(forced) && /diblokir sementara/.test(forced) && /5 menit/.test(forced));
+const zcallsAfter430 = zcalls.length;
+await zecBalance(zchain, ADDR, true).catch(() => {}); await zecBalance(zchain, ADDR, true).catch(() => {}); await zecBalance(zchain, ADDR, true).catch(() => {});
+ok("provider: setelah 430, permintaan berikutnya TIDAK menyentuh jaringan (tidak memperpanjang blokir)", zcalls.length === zcallsAfter430);
+const again = await zecBalance(zchain, ADDR, true).then(() => "ok", (e) => String(e.message));
+ok("provider: pesan jeda menyebut sisa detik", /dijeda \d+ dtk/.test(again));
+
+// saldo lama untuk tampilan
+const stale = await zecBalanceOrStale(zchain, ADDR);
+ok("provider: saat diblokir, tampilan memakai saldo terakhir yang berhasil (stale)", stale.total === 150000n && stale.stale === true);
+const tipStale = await zecTip(zchain, false);
+ok("provider: tip memakai nilai terakhir saat diblokir (bukan 'RPC offline')", tipStale === 3_610_156);
+ok("provider: diagnosa (bypass) tetap menembus jeda untuk menguji endpoint", await zecTip(zchain, true).then(() => false, (e) => /430/.test(e.message)));
+
+// alamat lain tanpa data lama: galat tetap dilempar (tidak mengarang saldo)
+ok("provider: tanpa data lama, galat dilempar (tidak ada saldo karangan)", await zecBalanceOrStale(zchain, "t1lain").then(() => false, () => true));
+
+globalThis.fetch = realFetch;
+}
+
+/* ------------------------------------------------- Zcash: adapter JSON-RPC (Zebra/Tatum) */
+{
+const mk = (urls: string[]) => ({ chainId: 900_000_201, name: "Zcash", symbol: "ZEC", testnet: false, rpcUrls: urls, kind: "zec" }) as never;
+const ADDR = "t1abc";
+type Req = { url: string; headers: Record<string, string>; body: { method: string; params: unknown[] } | null };
+let log: Req[] = [];
+let handler: (r: Req) => Response = () => new Response("{}");
+const realFetchRpc = globalThis.fetch;
+globalThis.fetch = (async (url: string, init?: RequestInit) => {
+  const r: Req = { url: String(url), headers: (init?.headers ?? {}) as Record<string, string>, body: init?.body ? JSON.parse(String(init.body)) : null };
+  log.push(r);
+  return handler(r);
+}) as never;
+const rpcOk = (result: unknown) => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }));
+const rpcErr = (code: number, message: string) => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code, message } }));
+
+// 1) Tatum Zebra: dikenali sebagai JSON-RPC, key dipindah ke header
+const TAT = "https://zcash-mainnet-zebrad.gateway.tatum.io?key=KUNCI123";
+handler = (r) => {
+  if (r.body?.method === "getaddressutxos") return rpcOk([{ address: ADDR, txid: "ab".repeat(32), outputIndex: 1, script: "76a914", satoshis: 250000, height: 3600000 }, { address: ADDR, txid: "cd".repeat(32), outputIndex: 0, script: "76a914", satoshis: 50000, height: 3600001 }]);
+  if (r.body?.method === "getblockcount") return rpcOk(3610500);
+  return rpcErr(-32601, "Method not found");
+};
+const b = await zecBalance(mk([TAT]), ADDR, true);
+ok("rpc: saldo = jumlah UTXO, semua terkonfirmasi", b.total === 300000n && b.confirmed === 300000n && b.unconfirmed === 0n && b.utxos.length === 2 && b.utxos[0].vout === 1);
+ok("rpc: metode & parameter getaddressutxos benar", log[0].body?.method === "getaddressutxos" && JSON.stringify(log[0].body?.params) === JSON.stringify([{ addresses: [ADDR] }]));
+ok("rpc: API key dikirim sebagai header x-api-key dan TIDAK ada di URL", log[0].headers["x-api-key"] === "KUNCI123" && !log[0].url.includes("KUNCI123") && !log[0].url.includes("key="));
+ok("rpc: POST JSON ke URL dasar", log[0].url === "https://zcash-mainnet-zebrad.gateway.tatum.io/" && log[0].headers["Content-Type"] === "application/json");
+ok("rpc: tinggi blok dari getblockcount", (await zecTip(mk([TAT]), true)) === 3610500);
+
+// 2) akhiran #jsonrpc untuk node sendiri
+log = [];
+await zecTip(mk(["https://node.example.com:8232/#jsonrpc"]), true);
+ok("rpc: akhiran #jsonrpc memilih adapter RPC, fragment dibuang dari URL", log[0].body?.method === "getblockcount" && !log[0].url.includes("#"));
+
+// 3) status tx
+handler = (r) => r.body?.method === "getrawtransaction" ? rpcOk({ confirmations: 3, height: 3610000 }) : rpcOk(null);
+ok("rpc: tx terkonfirmasi -> success", (await zecTxStatus(mk([TAT]), "ab".repeat(32))) === "success");
+handler = () => rpcOk({ confirmations: 0 });
+ok("rpc: tx di mempool -> pending", (await zecTxStatus(mk([TAT]), "ab".repeat(32))) === "pending");
+handler = () => rpcErr(-5, "No such mempool or main chain transaction");
+ok("rpc: tx belum terlihat (galat -5) -> pending, bukan galat", (await zecTxStatus(mk([TAT]), "ab".repeat(32))) === "pending");
+
+// 4) siaran
+handler = (r) => r.body?.method === "sendrawtransaction" ? rpcOk("ef".repeat(32)) : rpcOk(null);
+log = [];
+ok("rpc: sendrawtransaction mengembalikan txid", (await zecBroadcast(mk([TAT]), "0500008001")) === "ef".repeat(32) && JSON.stringify(log[0].body?.params) === JSON.stringify(["0500008001"]));
+handler = () => rpcErr(-26, "mandatory-script-verify-flag-failed");
+ok("rpc: transaksi ditolak node -> pesan galat apa adanya (tanpa dikira masalah jaringan)", await zecBroadcast(mk(["https://other-zebra.gateway.tatum.io"]), "0500008001").then(() => false, (e) => /mandatory-script-verify/.test(e.message) && !/tidak bisa dihubungi/.test(e.message)));
+
+// 5) butuh API key (401/403) dan fallback ke penyedia kedua
+let n = 0;
+handler = (r) => {
+  if (r.url.includes("tatum.io")) return new Response("Unauthorized", { status: 401 });
+  if (r.url.includes("/stats")) return new Response(JSON.stringify({ data: { blocks: 3610777 } }));
+  return new Response("{}");
+};
+const two = mk(["https://zcash-mainnet-zebrad.gateway.tatum.io", "https://api.blockchair.com/zcash"]);
+ok("rpc: penyedia pertama 401 -> otomatis jatuh ke Blockchair", (await zecTip(two, true)) === 3610777);
+handler = () => new Response("Forbidden", { status: 403 });
+const msg = await zecTip(mk(["https://zcash-mainnet-zebrad.gateway.tatum.io"]), true).then(() => "", (e) => e.message);
+ok("rpc: 403 -> pesan menyuruh menambahkan ?key=", /API key/.test(msg) && /\?key=/.test(msg));
+void n;
+
+// 6) fetch gagal (CORS/jaringan) -> penyedia berikutnya, pesan menyebut CORS
+globalThis.fetch = (async (url: string) => { if (String(url).includes("tatum")) throw new TypeError("Failed to fetch"); return new Response(JSON.stringify({ data: { blocks: 3610888 } })); }) as never;
+ok("rpc: fetch gagal (mis. CORS) di penyedia pertama -> lanjut ke penyedia kedua", (await zecTip(mk(["https://x-zebrad.gateway.tatum.io", "https://api.blockchair.com/zcash"]), true)) === 3610888);
+const m2 = await zecTip(mk(["https://y-zebrad.gateway.tatum.io"]), true).then(() => "", (e) => e.message);
+ok("rpc: pesan kegagalan fetch menyebut CORS", /CORS/.test(m2));
+
+globalThis.fetch = realFetchRpc;
 }
 
 laneTest().then(() => {

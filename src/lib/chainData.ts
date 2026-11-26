@@ -8,7 +8,7 @@ import { explainError } from "./explain";
 import type { Account } from "./vault";
 import { NEED_PHRASE, btcAccountNode, btcAddressAt, btcNet, getSeed, solAccount, zecAccount } from "../core/derive";
 import { scanBtc } from "../chains/bitcoin/account";
-import { zecBalance } from "../chains/zcash/provider";
+import { zecBalance, zecBalanceOrStale } from "../chains/zcash/provider";
 import { solBalance } from "../chains/solana/rpc";
 
 type Identity = { address: string; owner: string } | { unsupported: string } | { fail: string };
@@ -58,8 +58,14 @@ async function load(chain: ChainConfig, account: Account, force: boolean, fallba
     return { address: fallbackAddress, balance: formatUnits(await solBalance(chain, fallbackAddress), 9), pending: null, note: null };
   }
   if (kind === "zec") {
-    const b = await zecBalance(chain, fallbackAddress, force);
-    return { address: fallbackAddress, balance: formatUnits(b.total, 8), pending: b.unconfirmed > 0n ? formatUnits(b.unconfirmed, 8) : null, note: null };
+    // Muat ulang manual (force) memaksa data baru; polling biasa boleh memakai data terakhir bila penyedia membatasi laju.
+    const b = force ? await zecBalance(chain, fallbackAddress, true) : await zecBalanceOrStale(chain, fallbackAddress);
+    return {
+      address: fallbackAddress,
+      balance: formatUnits(b.total, 8),
+      pending: b.unconfirmed > 0n ? formatUnits(b.unconfirmed, 8) : null,
+      note: "stale" in b && b.stale ? "Menampilkan data terakhir yang berhasil dimuat; penyedia data sedang membatasi permintaan." : null,
+    };
   }
   const b = await withProvider(chain, (p) => p.getBalance(account.address));
   return { address: account.address, balance: formatEther(b), pending: null, note: null };

@@ -23,7 +23,7 @@ export async function testEndpoint(chain: ChainConfig, url: string): Promise<num
       await assertSolCluster(probe); // memastikan cluster (genesis hash) cocok
       break;
     case "zec":
-      await zecTip(probe); // tinggi blok valid = endpoint Zcash hidup
+      await zecTip(probe, true); // diagnosa: abaikan cache dan jeda pemutus sirkuit
       break;
     default: {
       const id = await probeRpc(url);

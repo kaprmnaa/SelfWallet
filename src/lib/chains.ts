@@ -124,14 +124,15 @@ export const CHAINS: ChainConfig[] = [
   },
   {
     // Zcash TRANSPARENT saja (t1…): alamat shielded (z/u) butuh bukti zk-SNARK dan tidak didukung.
-    // Base URL Blockchair; server Blockbook Zcash juga bisa dipasang lewat "Cek koneksi dan endpoint".
+    // Endpoint utama: JSON-RPC Zebra (Tatum), cadangan: Blockchair. Bisa diganti lewat "Cek koneksi dan endpoint"
+    // (mis. tambahkan ?key=API_KEY). lightwalletd (gRPC) tidak bisa dipakai langsung dari browser.
     kind: "zec",
     chainId: 900_000_201,
     name: "Zcash (transparent)",
     symbol: "ZEC",
     testnet: false,
-    rpcUrls: ["https://api.blockchair.com/zcash"],
-    explorer: "https://blockchair.com/zcash",
+    rpcUrls: ["https://zcash-mainnet-zebrad.gateway.tatum.io", "https://api.blockchair.com/zcash"],
+    explorer: "https://blockexplorer.one/zcash/mainnet",
   },
 ];
 
@@ -149,7 +150,7 @@ export function chainTag(c: ChainConfig): string {
 export function explorerTx(c: ChainConfig, hash: string): string | null {
   if (!c.explorer) return null;
   const q = kindOf(c) === "sol" && c.testnet ? "?cluster=devnet" : "";
-  return `${c.explorer}/${kindOf(c) === "zec" ? "transaction" : "tx"}/${hash}${q}`;
+  return `${c.explorer}/tx/${hash}${q}`;
 }
 export function explorerAddress(c: ChainConfig, address: string): string | null {
   if (!c.explorer) return null;
