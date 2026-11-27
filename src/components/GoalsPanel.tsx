@@ -46,7 +46,7 @@ export default function GoalsPanel({ account, chain, engine, sync }: Props) {
       <CreateGoal account={account} chain={chain} chains={chains} engine={engine} goals={goals} />
 
       <section>
-        <h3 className="text-xs uppercase tracking-[0.14em] text-zinc-500">Perjalanan Anda</h3>
+        <h3 className="text-sm font-medium text-zinc-300">Perjalanan Anda</h3>
         {mine.length === 0 ? (
           <div className="mt-3 flex items-start gap-4 border-y border-white/[0.06] py-8">
             <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-white/10 text-zinc-500">
@@ -234,7 +234,7 @@ function CreateGoal({ account, chain, chains, engine, goals }: { account: Accoun
 
   return (
     <form onSubmit={submit} className="grid gap-4">
-      <h3 className="text-xs uppercase tracking-[0.14em] text-zinc-500">Goal baru</h3>
+      <h3 className="text-sm font-medium text-zinc-300">Goal baru</h3>
       <Field label="Nama goal">
         <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} placeholder='mis. "target 100$" atau "10 to 100"' autoComplete="off" className={inputCls} />
       </Field>
@@ -371,7 +371,7 @@ function GoalCard({
           </p>
         </div>
         <span
-          className={`shrink-0 rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-wider ${
+          className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] ${
             g.status === "achieved" ? "border-accent/40 text-accent" : g.status === "cancelled" ? "border-white/10 text-zinc-500" : "border-amber-400/30 text-amber-300/90"
           }`}
         >
@@ -558,7 +558,7 @@ function TimeLockCard({ account }: { account: Account }) {
 
   return (
     <section className="grid gap-4 glass-surface rounded-xl border border-white/10 p-4">
-      <h3 className="flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-zinc-500">
+      <h3 className="flex items-center gap-2 text-sm font-medium text-zinc-300">
         <Timer /> Kunci semua jaringan (waktu)
       </h3>
       {active ? (

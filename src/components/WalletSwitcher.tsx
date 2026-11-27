@@ -10,7 +10,7 @@ import { Button, Field, Modal, PopoverScrim, inputCls, popoverCls, spring } from
 
 const AddWalletModal = lazy(() => import("./AddWalletModal"));
 
-export default function WalletSwitcher() {
+export default function WalletSwitcher({ block = false, align = "right" }: { block?: boolean; align?: "left" | "right" } = {}) {
   const { sessions, activeId, name, account, switchTo, renameSession } = useWallet();
   const [open, setOpen] = useState(false);
   const [saved, setSaved] = useState<SavedWallet[]>(() => loadWallets());
@@ -66,18 +66,18 @@ export default function WalletSwitcher() {
 
   return (
     <>
-      <div ref={root} className="relative w-full sm:w-auto">
+      <div ref={root} className={`relative w-full ${block ? "" : "sm:w-auto"}`}>
         <button
           type="button"
           aria-haspopup="listbox"
           aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
-          className="group flex w-full items-center gap-3 glass rounded-xl border border-white/10 py-2 pl-2.5 pr-3 text-left transition-[transform,background-color,border-color,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-white/20 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:w-auto"
+          className={`group flex w-full items-center gap-3 glass rounded-xl border border-white/10 py-2 pl-2.5 pr-3 text-left transition-[transform,background-color,border-color,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-white/20 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${block ? "" : "sm:w-auto"}`}
         >
           <WalletAvatar seed={activeId ?? "x"} label={name} size={24} />
           <span className="grid min-w-0 flex-1 leading-tight">
             <span className="truncate text-sm text-zinc-100 sm:max-w-[9.5rem]">{name}</span>
-            <span className="font-mono text-[10px] tracking-wide text-zinc-500">
+            <span className="hidden font-mono text-[10px] tracking-wide text-zinc-500 lg:block">
               {account ? shortAddr(account.address) : ""}
             </span>
           </span>
@@ -96,10 +96,10 @@ export default function WalletSwitcher() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 8, scale: 0.98 }}
               transition={spring}
-              style={{ transformOrigin: "top right" }}
-              className={popoverCls}
+              style={{ transformOrigin: align === "left" ? "top left" : "top right" }}
+              className={align === "left" ? popoverCls.replace("sm:right-0", "sm:left-0") : popoverCls}
             >
-              <p className="px-3 pb-1 pt-2 text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+              <p className="px-3 pb-1 pt-2 text-xs text-zinc-500">
                 Terbuka di sesi ini
               </p>
               <ul role="listbox" aria-label="Pilih wallet" className="grid gap-0.5">
@@ -150,7 +150,7 @@ export default function WalletSwitcher() {
 
               {locked.length > 0 && (
                 <>
-                  <p className="px-3 pb-1 pt-4 text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                  <p className="px-3 pb-1 pt-4 text-xs text-zinc-500">
                     Tersimpan, terkunci
                   </p>
                   <ul className="grid gap-0.5">

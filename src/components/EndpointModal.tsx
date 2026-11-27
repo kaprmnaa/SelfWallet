@@ -61,7 +61,7 @@ export default function EndpointModal({ open, onClose, chain }: { open: boolean;
                     <StatusDot tone={!r ? "warn" : r.ok ? "ok" : "bad"} still={!r} />
                     <span className="truncate font-mono text-xs">{hostOf(u)}</span>
                     {u === custom && (
-                      <span className="shrink-0 rounded-md border border-white/10 px-1.5 py-px text-[10px] uppercase tracking-wider text-zinc-500">
+                      <span className="shrink-0 rounded-md border border-white/10 px-1.5 py-px text-[11px] text-zinc-500">
                         kustom
                       </span>
                     )}

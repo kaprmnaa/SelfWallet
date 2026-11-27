@@ -92,6 +92,9 @@ atau koin native, termasuk testnet untuk uji coba). Progres, grafik perjalanan, 
   - Saldo dan transaksi transparent **publik** di blockchain (tidak privat seperti shielded).
   - **Perawatan:** branch ID konsensus ada di `src/chains/zcash/params.ts` dan HARUS diperbarui tiap Zcash network upgrade; transaksi dengan branch ID usang ditolak jaringan (dana aman, kirim gagal).
   - Belum diuji ke jaringan sungguhan: coba dengan nominal kecil dulu.
+- **Tampilan:** sidebar kaca di layar lebar dan tab bar kaca mengambang di HP (Aset, Kirim, Terima, Riwayat, Menu). Halaman Aset menampilkan total semua jaringan (pendukung) dan kartu jaringan aktif
+  (saldo, alamat, aksi Kirim/Terima/Swap) dengan cahaya lembut warna khas jaringan (`src/lib/chainTint.ts`). Detail akun, jaringan, dan keamanan ada di halaman Akun. Komponen cangkang ada di
+  `src/components/shell/` dan bersifat presentasi murni (tanpa dependensi data). Catatan teknis: wadah yang berisi popover/modal `position: fixed` tidak boleh memakai `backdrop-filter`.
 - **Riwayat tersinkron (terenkripsi):** setelah masuk (tab Goal), riwayat transaksi tersimpan di Supabase dan terlihat di perangkat mana pun yang membuka wallet
   yang sama. Dienkripsi di perangkat (AES-GCM, kunci diturunkan dari private key): server hanya melihat ciphertext, penanda wallet, chain id, dan waktu.
   Hash, alamat, jumlah, dan status tidak terbaca. Hanya pengiriman yang tercatat (swap belum). Jalankan ulang `supabase/schema.sql` untuk tabel `tx_history`.

@@ -317,7 +317,7 @@ function SwapForm({ account, chain, onChanged }: Props) {
       )}
 
       <section>
-        <h3 className="text-xs uppercase tracking-[0.14em] text-zinc-500">Aktivitas swap</h3>
+        <h3 className="text-sm font-medium text-zinc-300">Aktivitas swap</h3>
         {swaps.length === 0 ? (
           <p className="mt-3 max-w-[60ch] text-sm leading-relaxed text-zinc-500">
             Belum ada swap dari dompet ini. Status tersimpan di browser dan tetap dipantau setelah halaman dimuat ulang.

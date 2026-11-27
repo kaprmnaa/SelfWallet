@@ -8,7 +8,7 @@ import { Button, Modal, PopoverScrim, popoverCls, spring } from "./ui";
 
 const CustomChainModal = lazy(() => import("./CustomChainModal"));
 
-export default function NetworkSwitcher() {
+export default function NetworkSwitcher({ block = false, align = "right" }: { block?: boolean; align?: "left" | "right" } = {}) {
   const { chain, chains, testMode, setTestMode, setChainId } = useSettings();
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -51,19 +51,19 @@ export default function NetworkSwitcher() {
 
   return (
     <>
-      <div ref={root} className="relative w-full sm:w-auto">
+      <div ref={root} className={`relative w-full ${block ? "" : "sm:w-auto"}`}>
         <button
           type="button"
           aria-haspopup="listbox"
           aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
-          className="group flex w-full items-center gap-3 glass rounded-xl border border-white/10 py-2 pl-2.5 pr-3 text-left transition-[transform,background-color,border-color,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-white/20 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:w-auto"
+          className={`group flex w-full items-center gap-3 glass rounded-xl border border-white/10 py-2 pl-2.5 pr-3 text-left transition-[transform,background-color,border-color,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-white/20 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${block ? "" : "sm:w-auto lg:min-w-[13rem]"}`}
         >
           <CoinIcon symbol={chain.symbol} size={24} />
           <span className="grid min-w-0 flex-1 leading-tight">
             <span className="truncate text-sm text-zinc-100 sm:max-w-[9.5rem]">{chain.name}</span>
             <span
-              className={`text-[10px] uppercase tracking-[0.14em] ${chain.testnet ? "text-zinc-500" : "text-amber-300/80"}`}
+              className={`text-[11px] ${chain.testnet ? "text-zinc-500" : "text-amber-300/80"}`}
             >
               {chain.testnet ? "Testnet" : "Mainnet"}
             </span>
@@ -83,8 +83,8 @@ export default function NetworkSwitcher() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 8, scale: 0.98 }}
               transition={spring}
-              style={{ transformOrigin: "top right" }}
-              className={popoverCls}
+              style={{ transformOrigin: align === "left" ? "top left" : "top right" }}
+              className={align === "left" ? popoverCls.replace("sm:right-0", "sm:left-0") : popoverCls}
             >
               <div
                 role="group"
@@ -154,7 +154,7 @@ export default function NetworkSwitcher() {
                           <span className="flex items-center gap-2">
                             <span className="truncate text-sm text-zinc-100">{c.name}</span>
                             {c.custom && (
-                              <span className="shrink-0 rounded-md border border-white/10 px-1.5 py-px text-[10px] uppercase tracking-wider text-zinc-500">
+                              <span className="shrink-0 rounded-md border border-white/10 px-1.5 py-px text-[11px] text-zinc-500">
                                 kustom
                               </span>
                             )}

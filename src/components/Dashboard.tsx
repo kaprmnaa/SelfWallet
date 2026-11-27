@@ -1,6 +1,16 @@
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useState, type ReactNode } from "react";
 import { AnimatePresence, m } from "framer-motion";
-import { ArrowSquareOut, ArrowsClockwise, Key, Lock, ShieldCheck } from "@phosphor-icons/react";
+import {
+  AddressBook,
+  ArrowsLeftRight,
+  ClockCounterClockwise,
+  Coins,
+  PaperPlaneTilt,
+  QrCode,
+  ShieldCheck,
+  Target,
+  Wallet,
+} from "@phosphor-icons/react";
 import { useWallet, AUTO_LOCK_MS } from "../context/WalletContext";
 import { useSettings } from "../context/SettingsContext";
 import { explorerAddress, kindOf } from "../lib/chains";
@@ -19,11 +29,13 @@ import { useHistorySync } from "../history/useHistorySync";
 import ChainPulse from "./ChainPulse";
 import NetworkSwitcher from "./NetworkSwitcher";
 import WalletSwitcher from "./WalletSwitcher";
-import PortfolioPanel from "./PortfolioPanel";
+import HomePanel from "./HomePanel";
+import AccountPanel from "./shell/AccountPanel";
+import AppShell from "./shell/AppShell";
+import type { NavItem } from "./shell/nav";
 import ContactsPanel from "./ContactsPanel";
 import ZecSendPanel from "./ZecSendPanel";
-import CoinIcon from "./CoinIcon";
-import { Button, CopyButton, Notice, Skeleton, Tabs, spring } from "./ui";
+import { Notice, Skeleton, spring } from "./ui";
 
 const SendPanel = lazy(() => import("./SendPanel"));
 const SwapPanel = lazy(() => import("./SwapPanel"));
@@ -35,19 +47,21 @@ const ReceivePanel = lazy(() => import("./ReceivePanel"));
 const TokensPanel = lazy(() => import("./TokensPanel"));
 const HistoryPanel = lazy(() => import("./HistoryPanel"));
 
-type Tab = "portofolio" | "goal" | "kirim" | "kontak" | "swap" | "terima" | "token" | "riwayat";
-const TABS: { key: Tab; label: string }[] = [
-  { key: "portofolio", label: "Aset" },
-  { key: "goal", label: "Goal" },
-  { key: "kirim", label: "Kirim" },
-  { key: "kontak", label: "Kontak" },
-  { key: "swap", label: "Swap" },
-  { key: "terima", label: "Terima" },
-  { key: "token", label: "Token" },
-  { key: "riwayat", label: "Riwayat" },
+type Tab = "portofolio" | "kirim" | "terima" | "swap" | "riwayat" | "kontak" | "goal" | "token" | "akun";
+type NavDef = NavItem & { key: Tab; evmOnly?: boolean };
+const NAV: NavDef[] = [
+  { key: "portofolio", label: "Aset", icon: Wallet, primary: true, group: 0 },
+  { key: "kirim", label: "Kirim", icon: PaperPlaneTilt, primary: true, group: 0 },
+  { key: "terima", label: "Terima", icon: QrCode, primary: true, group: 0 },
+  { key: "swap", label: "Swap", icon: ArrowsLeftRight, group: 0, evmOnly: true },
+  { key: "riwayat", label: "Riwayat", icon: ClockCounterClockwise, primary: true, group: 1 },
+  { key: "kontak", label: "Kontak", icon: AddressBook, group: 1 },
+  { key: "goal", label: "Goal", icon: Target, group: 1 },
+  { key: "token", label: "Token", icon: Coins, group: 1, evmOnly: true },
+  { key: "akun", label: "Akun", icon: ShieldCheck, group: 2 },
 ];
 
-const KIND_LABEL = { evm: "EVM", btc: "Bitcoin (UTXO)", sol: "Solana" } as const;
+const KIND_LABEL = { evm: "EVM", btc: "Bitcoin (UTXO)", sol: "Solana", zec: "Zcash (transparent)" } as const;
 
 const SECURITY = [
   "Kunci privat hanya ada di memori tab ini.",
@@ -60,7 +74,7 @@ export default function Dashboard({ account }: { account: Account }) {
   const { lock, name: walletName } = useWallet();
   const { chain, chains, testMode, allTokens, history, setHistoryStatus } = useSettings();
   const kind = kindOf(chain);
-  const tabs = kind === "evm" ? TABS : TABS.filter((t) => t.key !== "token" && t.key !== "swap");
+  const tabs = kind === "evm" ? NAV : NAV.filter((t) => !t.evmOnly);
   const [tab, setTab] = useState<Tab>("portofolio");
   const [endpointOpen, setEndpointOpen] = useState(false);
   const [endpointMounted, setEndpointMounted] = useState(false);
@@ -110,268 +124,148 @@ export default function Dashboard({ account }: { account: Account }) {
     pf.refresh();
   };
 
+  const nativeRow = pf.rows.find((r) => r.chain.chainId === chain.chainId && !r.address);
+  const derivation =
+    kind === "btc" ? `${btcAccountPath(btcNet(chain.testnet))} (BIP-84)` : kind === "zec" ? `${ZEC_PATH} (transparent)` : kind === "sol" ? SOL_PATH : null;
+
+  const actions = [
+    { key: "kirim", label: "Kirim", icon: PaperPlaneTilt, primary: true, onClick: () => setTab("kirim") },
+    { key: "terima", label: "Terima", icon: QrCode, onClick: () => setTab("terima") },
+    ...(kind === "evm" ? [{ key: "swap", label: "Swap", icon: ArrowsLeftRight, onClick: () => setTab("swap") }] : []),
+  ];
+
+  // Panel selain Aset dan Akun tampil di dalam satu kartu kaca.
+  // Form (Kirim, Terima, Swap, Kontak) dibatasi lebarnya agar kolom isian tidak melar di layar lebar.
+  const inCard = (node: ReactNode, narrow = false) => (
+    <section className={`glass-surface glass-rim relative rounded-[2rem] p-6 sm:p-8 ${narrow ? "max-w-2xl" : ""}`}>{node}</section>
+  );
+
   return (
-    <div className="min-h-[100dvh]">
-      {!chain.testnet && (
-        <div className="border-b border-amber-400/20 bg-amber-400/[0.06] px-6 py-2 text-center text-xs text-amber-200/90">
-          Mainnet aktif. Setiap transaksi memakai dana sungguhan.
-        </div>
-      )}
-
-      <div className="px-4 pt-4 sm:px-8 sm:pt-6">
-      <header className="glass-surface glass-rim mx-auto grid max-w-[1400px] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-4 rounded-[1.75rem] px-5 py-4 sm:flex sm:px-6">
-        <div className="flex items-center gap-3 text-zinc-50">
-          <span className="glass grid size-9 place-items-center rounded-xl border border-white/10 text-accent">
-            <Key />
-          </span>
-          <span className="text-lg font-medium tracking-tight">Kunci</span>
-        </div>
-        <Button variant="ghost" onClick={lock} className="size-11 !p-0 sm:order-3" aria-label="Kunci semua wallet">
-          <Lock />
-        </Button>
-        <div className="col-span-2 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2 sm:order-2 sm:ml-auto sm:flex sm:items-center sm:gap-3">
-          <ChainPulse chain={chain} />
-          <WalletSwitcher />
-          <NetworkSwitcher />
-        </div>
-      </header>
-      </div>
-
-      <main className="mx-auto grid max-w-[1400px] gap-6 px-4 pb-24 pt-6 sm:px-8 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] lg:items-start">
-        <section className="glass-surface glass-rim min-w-0 rounded-[2rem] p-6 sm:p-9">
-          <div className="mb-12">
-            <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">
-              Total aset · {testMode ? "semua testnet" : "semua mainnet"}
-            </p>
-            {pf.loading ? (
-              <Skeleton className="mt-3 h-9 w-52" />
-            ) : testMode ? (
-              <p className="mt-3 max-w-[60ch] text-sm leading-relaxed text-zinc-500">
-                Testnet tidak punya nilai uang. Lihat jumlah koin tiap jaringan di tab Portofolio.
-              </p>
-            ) : pf.priceError && pf.totalUsd === 0 ? (
-              <p className="mt-3 text-sm text-zinc-500">Harga tidak bisa dimuat. Jumlah koin tetap ada di tab Portofolio.</p>
-            ) : (
-              <>
-                <p className="mt-3 font-mono text-3xl tracking-tight text-zinc-50">{fmtUsd(pf.totalUsd)}</p>
-                <p className="mt-1 font-mono text-sm text-zinc-500">
-                  {fmtIdr(pf.totalIdr)}
-                  {pf.unpriced > 0 ? ` · ${pf.unpriced} aset belum berharga` : ""}
-                </p>
-              </>
-            )}
-          </div>
-
-          <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">Saldo · {chain.name}</p>
-          <div className="mt-4 flex flex-wrap items-end gap-x-3 gap-y-2">
-            {data.unsupported ? null : data.loading && data.balance === null ? (
-              <Skeleton className="h-14 w-64" />
-            ) : data.balance !== null ? (
-              <m.p
-                key={data.balance}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={spring}
-                className="font-mono text-4xl tracking-tight text-zinc-50 sm:text-5xl md:text-6xl"
-              >
-                {trimAmount(data.balance, 8)}
-              </m.p>
-            ) : (
-              <div className="max-w-[60ch]" role="alert">
-                <p className="break-words text-sm leading-relaxed text-rose-400">{data.error}</p>
-                <button
-                  type="button"
-                  onClick={openEndpoints}
-                  className="mt-2 text-xs text-accent hover:underline"
-                >
-                  Cek koneksi dan ubah endpoint
-                </button>
-              </div>
-            )}
-            <span className="flex items-center gap-2 pb-2 font-mono text-lg text-zinc-500">
-              <CoinIcon symbol={chain.symbol} size={24} />
-              {chain.symbol}
-            </span>
-            <button
-              type="button"
-              onClick={data.refresh}
-              aria-label="Segarkan saldo"
-              className="mb-2 ml-1 grid size-8 place-items-center rounded-lg text-zinc-500 transition-colors duration-300 hover:bg-white/5 hover:text-zinc-200 active:scale-95"
+    <>
+      <AppShell
+        items={tabs}
+        active={activeTab}
+        onNavigate={(k) => setTab(k as Tab)}
+        title={tabs.find((t) => t.key === activeTab)?.label ?? "Aset"}
+        wallet={(where) => <WalletSwitcher block align={where === "sidebar" ? "left" : "right"} />}
+        network={(where) => <NetworkSwitcher block={where === "top"} align="right" />}
+        status={<ChainPulse chain={chain} />}
+        onLock={lock}
+        banner={
+          !chain.testnet ? (
+            <div
+              role="status"
+              className="flex items-center justify-center gap-2 rounded-xl border border-amber-400/20 bg-amber-400/[0.06] px-4 py-2 text-xs text-amber-200/90 lg:justify-start"
             >
-              <ArrowsClockwise />
-            </button>
-          </div>
-          {data.unsupported && <div className="mt-4 max-w-[60ch]"><Notice>{data.unsupported}</Notice></div>}
-          {data.note && <p className="mt-3 max-w-[60ch] text-xs leading-relaxed text-amber-300/80">{data.note}</p>}
-          {data.pending && (
-            <p className="mt-3 font-mono text-sm text-zinc-500">
-              + {trimAmount(data.pending, 8)} {chain.symbol} menunggu konfirmasi
-            </p>
-          )}
-          {empty && (
-            <p className="mt-4 max-w-[60ch] text-sm leading-relaxed text-zinc-500">
-              Saldo masih nol.{" "}
-              {chain.testnet
-                ? "Minta koin testnet dari faucet resmi jaringan ini"
-                : "Kirim sedikit koin native ke alamat Anda"}
-              , lalu tekan segarkan.
-            </p>
-          )}
-
-          <div className="mt-12">
-            <Tabs items={tabs} value={activeTab} onChange={setTab} id="dash" />
-            <AnimatePresence mode="wait">
-              <m.div
-                key={`${activeTab}-${chain.chainId}`}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={spring}
-                className="pt-8"
-              >
-                <Suspense fallback={<PanelSkeleton />}>
-                  {activeTab === "portofolio" && <PortfolioPanel pf={pf} testMode={testMode} />}
-                  {activeTab === "kirim" &&
-                    (data.unsupported ? (
-                      <Notice>{data.unsupported}</Notice>
-                    ) : !address ? (
-                      <PanelSkeleton />
-                    ) : kind === "btc" ? (
-                      <BtcSendPanel account={account} chain={chain} owner={owner} onSent={afterSend} />
-                    ) : kind === "zec" ? (
-                      <ZecSendPanel account={account} chain={chain} owner={owner} onSent={afterSend} />
-                    ) : kind === "sol" ? (
-                      <SolSendPanel account={account} chain={chain} owner={owner} onSent={afterSend} />
-                    ) : (
-                      <SendPanel account={account} chain={chain} address={address} onSent={afterSend} />
-                    ))}
-                  {activeTab === "kontak" && <ContactsPanel kind={kind} />}
-                  {activeTab === "goal" && <GoalsPanel account={account} chain={chain} engine={engine} sync={sync} />}
-                  {activeTab === "swap" && <SwapPanel account={account} chain={chain} onChanged={afterSend} />}
-                  {activeTab === "terima" &&
-                    (data.unsupported ? (
-                      <Notice>{data.unsupported}</Notice>
-                    ) : !address ? (
-                      <PanelSkeleton />
-                    ) : (
-                      <ReceivePanel address={address} chain={chain} />
-                    ))}
-                  {activeTab === "token" && <TokensPanel chain={chain} owner={account.address} />}
-                  {activeTab === "riwayat" && (owner ? <HistoryPanel chain={chain} address={owner} syncStatus={sync.state.status} hsync={hsync} /> : <PanelSkeleton />)}
-                </Suspense>
-              </m.div>
-            </AnimatePresence>
-          </div>
-        </section>
-
-        <aside className="glass-surface glass-rim min-w-0 divide-y divide-white/[0.06] rounded-[2rem] p-6 sm:p-9">
-          <div className="pb-8 lg:pt-1">
-            <p className="truncate text-xs uppercase tracking-[0.14em] text-zinc-500">Akun · {walletName}</p>
-            {address ? (
-              <>
-                <div className="mt-3 flex items-start gap-1">
-                  <p className="break-all font-mono text-sm leading-relaxed text-zinc-100">{address}</p>
-                  <CopyButton text={address} label="Salin alamat" />
-                </div>
-                {explorerLink && (
-                  <a
-                    href={explorerLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-3 inline-flex items-center gap-1.5 text-xs text-accent hover:underline"
-                  >
-                    Lihat di explorer <ArrowSquareOut />
-                  </a>
+              <span className="size-1.5 rounded-full bg-amber-400" />
+              Mainnet aktif: memakai dana sungguhan.
+            </div>
+          ) : undefined
+        }
+      >
+        <AnimatePresence mode="wait">
+          <m.div
+            key={`${activeTab}-${chain.chainId}`}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={spring}
+          >
+            <Suspense fallback={<PanelSkeleton />}>
+              {activeTab === "portofolio" && (
+                <HomePanel
+                  pf={pf}
+                  testMode={testMode}
+                  totalUsd={fmtUsd(pf.totalUsd)}
+                  totalIdr={fmtIdr(pf.totalIdr)}
+                  activeChainId={chain.chainId}
+                  actions={actions}
+                  card={{
+                    name: chain.name,
+                    symbol: chain.symbol,
+                    testnet: chain.testnet,
+                    balance: data.balance !== null ? trimAmount(data.balance, 8) : null,
+                    loading: data.loading,
+                    fiat: !testMode && nativeRow?.usd != null ? fmtUsd(nativeRow.usd) : null,
+                    pending: data.pending ? trimAmount(data.pending, 8) : null,
+                    note: data.note,
+                    error: data.error,
+                    unsupported: data.unsupported,
+                    address,
+                    explorerLink,
+                    emptyHint: empty
+                      ? `Saldo masih nol. ${chain.testnet ? "Minta koin testnet dari faucet resmi jaringan ini" : "Kirim sedikit koin native ke alamat Anda"}, lalu tekan segarkan.`
+                      : null,
+                    status: <ChainPulse chain={chain} />,
+                    onRefresh: () => {
+                      data.refresh();
+                      pf.refresh();
+                    },
+                    onOpenEndpoints: openEndpoints,
+                  }}
+                />
+              )}
+              {activeTab === "kirim" &&
+                inCard(
+                  data.unsupported ? (
+                    <Notice>{data.unsupported}</Notice>
+                  ) : !address ? (
+                    <PanelSkeleton />
+                  ) : kind === "btc" ? (
+                    <BtcSendPanel account={account} chain={chain} owner={owner} onSent={afterSend} />
+                  ) : kind === "zec" ? (
+                    <ZecSendPanel account={account} chain={chain} owner={owner} onSent={afterSend} />
+                  ) : kind === "sol" ? (
+                    <SolSendPanel account={account} chain={chain} owner={owner} onSent={afterSend} />
+                  ) : (
+                    <SendPanel account={account} chain={chain} address={address} onSent={afterSend} />
+                  ),
+                  true,
                 )}
-              </>
-            ) : (
-              <Skeleton className="mt-3 h-5 w-full" />
-            )}
-          </div>
-
-          <div className="py-8">
-            <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">Jaringan</p>
-            <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-2 text-sm">
-              <dt className="text-zinc-500">Jenis</dt>
-              <dd className="text-zinc-200">{KIND_LABEL[kind]}</dd>
-              {kind === "evm" && (
-                <>
-                  <dt className="text-zinc-500">Chain ID</dt>
-                  <dd className="font-mono text-zinc-200">{chain.chainId}</dd>
-                </>
+              {activeTab === "kontak" && inCard(<ContactsPanel kind={kind} />, true)}
+              {activeTab === "goal" && inCard(<GoalsPanel account={account} chain={chain} engine={engine} sync={sync} />)}
+              {activeTab === "swap" && inCard(<SwapPanel account={account} chain={chain} onChanged={afterSend} />, true)}
+              {activeTab === "terima" &&
+                inCard(
+                  data.unsupported ? (
+                    <Notice>{data.unsupported}</Notice>
+                  ) : !address ? (
+                    <PanelSkeleton />
+                  ) : (
+                    <ReceivePanel address={address} chain={chain} />
+                  ),
+                  true,
+                )}
+              {activeTab === "token" && inCard(<TokensPanel chain={chain} owner={account.address} />)}
+              {activeTab === "riwayat" &&
+                inCard(owner ? <HistoryPanel chain={chain} address={owner} syncStatus={sync.state.status} hsync={hsync} /> : <PanelSkeleton />)}
+              {activeTab === "akun" && (
+                <AccountPanel
+                  walletName={walletName}
+                  address={address}
+                  explorerLink={explorerLink}
+                  kindLabel={KIND_LABEL[kind]}
+                  chainId={kind === "evm" ? chain.chainId : null}
+                  derivation={derivation}
+                  testnet={chain.testnet}
+                  custom={!!chain.custom}
+                  endpointCount={chain.rpcUrls.length}
+                  security={SECURITY}
+                  onOpenEndpoints={openEndpoints}
+                  onDeepScan={kind === "btc" ? data.deepScan : undefined}
+                  vault={<VaultMemory />}
+                />
               )}
-              {kind === "btc" && (
-                <>
-                  <dt className="text-zinc-500">Derivasi</dt>
-                  <dd className="break-all font-mono text-zinc-200">{btcAccountPath(btcNet(chain.testnet))} (BIP-84)</dd>
-                </>
-              )}
-              {kind === "zec" && (
-                <>
-                  <dt className="text-zinc-500">Derivasi</dt>
-                  <dd className="break-all font-mono text-zinc-200">{ZEC_PATH} (transparent)</dd>
-                </>
-              )}
-              {kind === "sol" && (
-                <>
-                  <dt className="text-zinc-500">Derivasi</dt>
-                  <dd className="break-all font-mono text-zinc-200">{SOL_PATH}</dd>
-                </>
-              )}
-              <dt className="text-zinc-500">Mode</dt>
-              <dd className="text-zinc-200">{chain.testnet ? "Testnet" : "Mainnet"}</dd>
-              {chain.custom && (
-                <>
-                  <dt className="text-zinc-500">Sumber</dt>
-                  <dd className="text-zinc-200">Kustom</dd>
-                </>
-              )}
-              <dt className="text-zinc-500">Cadangan data</dt>
-              <dd className="font-mono text-zinc-200">{chain.rpcUrls.length} endpoint</dd>
-            </dl>
-            <button
-              type="button"
-              onClick={openEndpoints}
-              className="mt-4 text-xs text-accent transition-colors duration-300 hover:underline"
-            >
-              Cek koneksi dan endpoint
-            </button>
-            {kind === "btc" && (
-              <div className="mt-3">
-                <button
-                  type="button"
-                  onClick={data.deepScan}
-                  className="text-xs text-accent transition-colors duration-300 hover:underline"
-                >
-                  Pindai mendalam (gap 20)
-                </button>
-                <p className="mt-1 max-w-[42ch] text-xs leading-relaxed text-zinc-600">
-                  Hanya jika dana dari aplikasi lain tidak muncul. Mengirim lebih banyak permintaan ke penyedia data.
-                </p>
-              </div>
-            )}
-          </div>
-
-          <div className="pt-8">
-            <p className="text-xs uppercase tracking-[0.14em] text-zinc-500">Keamanan</p>
-            <ul className="mt-3 grid gap-3">
-              {SECURITY.map((s) => (
-                <li key={s} className="flex gap-3 text-sm leading-relaxed text-zinc-400">
-                  <ShieldCheck className="mt-0.5 shrink-0 text-accent" />
-                  {s}
-                </li>
-              ))}
-            </ul>
-            <VaultMemory />
-          </div>
-        </aside>
-      </main>
+            </Suspense>
+          </m.div>
+        </AnimatePresence>
+      </AppShell>
       {endpointMounted && (
         <Suspense fallback={null}>
           <EndpointModal open={endpointOpen} onClose={() => setEndpointOpen(false)} chain={chain} />
         </Suspense>
       )}
-    </div>
+    </>
   );
 }
 

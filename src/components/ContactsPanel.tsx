@@ -134,7 +134,7 @@ export default function ContactsPanel({ kind: currentKind }: { kind: ContactKind
               <div className="min-w-0 flex-1">
                 <p className="flex items-center gap-2 truncate text-sm text-zinc-100">
                   {c.name}
-                  <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-zinc-500">{KIND_NAME[c.kind]}</span>
+                  <span className="rounded-full border border-white/10 px-2 py-0.5 text-[11px] text-zinc-500">{KIND_NAME[c.kind]}</span>
                 </p>
                 <p className="truncate font-mono text-xs text-zinc-500">{shortAddr(c.address)}</p>
                 {c.note && <p className="truncate text-xs text-zinc-600">{c.note}</p>}
