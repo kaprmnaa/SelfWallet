@@ -19,6 +19,7 @@ import { encodeP2pkh, encodeP2sh, parseRecipient, hash160, p2pkhScript } from ".
 import { branchIdAt } from "../src/chains/zcash/params";
 import { MAX_INPUTS, MIN_CHANGE, compactSize, i64, parseV5, planSpend, serializeV5, sigHashV5, signV5, zip317Fee, type ZTx } from "../src/chains/zcash/tx";
 import { zecBalance, zecBalanceOrStale, zecBroadcast, zecTip, zecTxStatus } from "../src/chains/zcash/provider";
+import { nativePrices, tokenPrices, resetPriceState, MIN_LIQUIDITY_USD } from "../src/lib/prices";
 import { parseItem } from "../src/history/crypto";
 import { verifyAssertion, derToRaw, b64u } from "../src/txauth/webauthn";
 import { getTxSettings, setSendMode, clearTxAuth, assertTxAuthorized } from "../src/txauth/store";
@@ -655,6 +656,155 @@ const m2 = await zecTip(mk(["https://y-zebrad.gateway.tatum.io"]), true).then(()
 ok("rpc: pesan kegagalan fetch menyebut CORS", /CORS/.test(m2));
 
 globalThis.fetch = realFetchRpc;
+}
+
+/* ------------------------------------------------- Harga: sumber berlapis (fetch palsu) */
+{
+type Handler = (url: URL) => Response | Promise<Response>;
+let calls: string[] = [];
+let routes: { test: RegExp; h: Handler }[] = [];
+const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status });
+const on = (test: RegExp, h: Handler) => routes.unshift({ test, h });
+const realFetchPr = globalThis.fetch;
+globalThis.fetch = (async (u: string) => {
+  calls.push(String(u));
+  const r = routes.find((x) => x.test.test(String(u)));
+  if (!r) throw new TypeError("Failed to fetch (tak ada rute): " + u);
+  return r.h(new URL(String(u)));
+}) as never;
+const reset = () => { resetPriceState(); calls = []; routes = []; };
+const hits = (re: RegExp) => calls.filter((c) => re.test(c)).length;
+const LL = /coins\.llama\.fi/, BN = /binance\.vision/, CGR = /coingecko\.com/, DX = /dexscreener\.com/, FX1 = /open\.er-api\.com/, FX2 = /frankfurter/;
+const llamaNatives = (miss: string[] = []) => on(LL, (u) => {
+  const P: Record<string, number> = { "coingecko:ethereum": 3000, "coingecko:binancecoin": 600, "coingecko:polygon-ecosystem-token": 0.5, "coingecko:plasma": 2, "coingecko:bitcoin": 90000, "coingecko:solana": 150, "coingecko:zcash": 33 };
+  const coins: Record<string, unknown> = {};
+  for (const k of decodeURIComponent(u.pathname).split("/").pop()!.split(",")) if (P[k] && !miss.includes(k)) coins[k] = { price: P[k], confidence: 0.99 };
+  return json({ coins });
+});
+const fxOk = (rate = 16000) => on(FX1, () => json({ rates: { IDR: rate } }));
+
+// ---------------- koin native
+reset(); llamaNatives(); fxOk();
+let n = await nativePrices();
+ok("native: DefiLlama dipakai pertama, 1 permintaan untuk semua koin", hits(LL) === 1 && hits(BN) === 0 && hits(CGR) === 0);
+ok("native: harga benar per chainId (ETH & Base sama)", n[1]?.usd === 3000 && n[8453]?.usd === 3000 && n[56]?.usd === 600 && n[900_000_201]?.usd === 33 && n[900_000_001]?.usd === 90000);
+ok("native: IDR = USD x kurs dari API kurs", n[56]?.idr === 600 * 16000);
+
+reset(); on(LL, () => json({}, 500)); on(BN, (u) => { const syms = JSON.parse(u.searchParams.get("symbols")!) as string[]; const P: Record<string, string> = { ETHUSDT: "3001", BNBUSDT: "601", POLUSDT: "0.51", XPLUSDT: "2.1", BTCUSDT: "90001", SOLUSDT: "151", ZECUSDT: "34" }; return json(syms.map((s) => ({ symbol: s, price: P[s] }))); }); fxOk();
+n = await nativePrices();
+ok("native: DefiLlama gagal -> Binance mengisi semua", n[1]?.usd === 3001 && n[56]?.usd === 601 && n[900_000_201]?.usd === 34 && hits(CGR) === 0);
+ok("native: Binance diminta lewat parameter symbols (JSON) dengan pasangan USDT", calls.some((c) => /symbols=%5B/.test(c) && /ZECUSDT/.test(decodeURIComponent(c))));
+
+reset(); llamaNatives(["coingecko:zcash"]); on(BN, (u) => json(JSON.parse(u.searchParams.get("symbols")!).map((s: string) => ({ symbol: s, price: "35" })))); fxOk();
+n = await nativePrices();
+ok("native: Llama tanpa ZEC -> Binance hanya diminta untuk yang kurang (ZEC)", n[900_000_201]?.usd === 35 && n[1]?.usd === 3000 && hits(BN) === 1 && JSON.parse(new URL(calls.find((c) => BN.test(c))!).searchParams.get("symbols")!).join() === "ZECUSDT");
+
+reset(); on(LL, () => json({}, 429)); on(BN, () => json({}, 451)); on(CGR, () => json({ ethereum: { usd: 2900, idr: 46_400_000 }, binancecoin: { usd: 580, idr: 9_280_000 }, "polygon-ecosystem-token": { usd: 0.4, idr: 6400 }, plasma: { usd: 1.8, idr: 28_800 }, bitcoin: { usd: 88000, idr: 1_408_000_000 }, solana: { usd: 140, idr: 2_240_000 }, zcash: { usd: 30, idr: 480_000 } }));
+n = await nativePrices();
+ok("native: Llama & Binance gagal -> CoinGecko jadi cadangan terakhir (IDR langsung dari CG)", n[1]?.usd === 2900 && n[1]?.idr === 46_400_000 && hits(FX1) === 0);
+
+reset(); on(LL, () => json({}, 500)); on(BN, () => json({}, 500)); on(CGR, () => json({}, 429));
+ok("native: semua sumber gagal dan tanpa data lama -> galat", await nativePrices().then(() => false, () => true));
+
+reset(); llamaNatives(); fxOk();
+await nativePrices(); const firstCalls = calls.length; await nativePrices();
+ok("native: cache 5 menit, panggilan kedua tanpa jaringan", calls.length === firstCalls);
+
+reset(); on(LL, () => json({}, 500)); on(BN, () => json({}, 500));
+on(CGR, (u) => {
+  if (u.pathname.endsWith("/search")) {
+    const symbol = u.searchParams.get("query")!.toLowerCase();
+    return json({ coins: symbol === "xyz"
+      ? [{ id: "xyz-coin", symbol: "XYZ" }]
+      : [{ id: "dup-one", symbol: "DUP" }, { id: "dup-two", symbol: "dup" }] });
+  }
+  return json({ "xyz-coin": { usd: 2, idr: 32000 } });
+});
+const customNative = [
+  { chainId: 912345, name: "Custom XYZ", symbol: "XYZ", testnet: false, custom: true, rpcUrls: [], explorer: "" },
+  { chainId: 912346, name: "Custom DUP", symbol: "DUP", testnet: false, custom: true, rpcUrls: [], explorer: "" },
+];
+n = await nativePrices(customNative);
+ok("native: custom chain otomatis menemukan CoinGecko berdasarkan simbol yang unik", n[912345]?.usd === 2);
+ok("native: simbol CoinGecko ambigu tidak diberi harga tebakan", n[912346] === null);
+
+// kurs IDR
+reset(); llamaNatives(); on(FX1, () => json({}, 500)); on(FX2, () => json({ rates: { IDR: 15900 } }));
+n = await nativePrices();
+ok("kurs: er-api gagal -> Frankfurter", n[56]?.idr === 600 * 15900 && hits(FX2) === 1);
+reset(); llamaNatives(); on(FX1, () => json({ rates: { IDR: 5 } })); on(FX2, () => json({ rates: { IDR: 16100 } }));
+n = await nativePrices();
+ok("kurs: nilai tak masuk akal (5) ditolak, pakai cadangan", n[56]?.idr === 600 * 16100);
+reset(); llamaNatives(); on(FX1, () => json({}, 500)); on(FX2, () => json({}, 500));
+n = await nativePrices();
+ok("kurs: semua sumber kurs gagal -> USD tetap ada, IDR = 0 (tidak dikarang)", n[56]?.usd === 600 && n[56]?.idr === 0);
+
+// ---------------- token
+const T1 = "0x" + "a1".repeat(20), T2 = "0x" + "b2".repeat(20), T3 = "0x" + "c3".repeat(20);
+reset(); fxOk();
+on(LL, (u) => { const keys = decodeURIComponent(u.pathname).split("/").pop()!.split(","); const coins: Record<string, unknown> = {}; for (const k of keys) { if (k.endsWith(T1)) coins[k.replace(T1, T1.toUpperCase().replace("0X", "0x"))] = { price: 1.0002, confidence: 0.99 }; if (k.endsWith(T2)) coins[k] = { price: 777, confidence: 0.3 }; } return json({ coins }); });
+on(DX, () => json({ pairs: null }));
+let t = await tokenPrices(56, [T1, T2, T3]);
+ok("token: DefiLlama 1 permintaan untuk banyak alamat", hits(LL) === 1);
+ok("token: kunci respons huruf campuran tetap dicocokkan (tak peka huruf besar/kecil)", t[T1]?.usd === 1.0002);
+ok("token: confidence rendah (0.3) ditolak -> null, bukan harga 777", t[T2] === null);
+ok("token: kunci hasil selalu huruf kecil, IDR dari kurs", t[T1]?.idr === 1.0002 * 16000 && Object.keys(t).every((k) => k === k.toLowerCase()));
+const c0 = calls.length; await tokenPrices(56, [T1, T2, T3]);
+ok("token: hasil termasuk 'tidak dikenal' di-cache (tak diulang ke jaringan)", calls.length === c0);
+
+// DexScreener
+reset(); fxOk(); on(LL, () => json({ coins: {} }));
+on(DX, () => json({ pairs: [
+  { chainId: "bsc", baseToken: { address: T1 }, priceUsd: "2.5", liquidity: { usd: 80_000 } },
+  { chainId: "bsc", baseToken: { address: T1 }, priceUsd: "2.4", liquidity: { usd: 900_000 } },
+  { chainId: "ethereum", baseToken: { address: T1 }, priceUsd: "999", liquidity: { usd: 9_000_000 } },
+  { chainId: "bsc", baseToken: { address: T2 }, priceUsd: "50000", liquidity: { usd: 1_200 } },
+  { chainId: "bsc", baseToken: { address: "0x" + "ee".repeat(20) }, priceUsd: "5", liquidity: { usd: 5_000_000 } },
+] }));
+t = await tokenPrices(56, [T1, T2]);
+ok("token: DexScreener dipakai bila Llama tak punya; pasangan likuiditas tertinggi di jaringan yang benar", t[T1]?.usd === 2.4);
+ok(`token: pasangan di jaringan lain (999) tidak dipakai`, t[T1]?.usd !== 999);
+ok(`token: likuiditas < $${MIN_LIQUIDITY_USD} ditolak (token spam dengan harga palsu 50000 -> null)`, t[T2] === null);
+ok("token: alamat bukan milik daftar diabaikan", !("0x" + "ee".repeat(20) in t));
+
+// semua gagal
+reset(); on(LL, () => json({}, 500)); on(DX, () => json({}, 500)); on(CGR, () => json({}, 429));
+ok("token: semua sumber gagal & tidak ada data -> galat", await tokenPrices(56, [T1]).then(() => false, (e) => /sementara/.test(e.message)));
+
+// hanya Llama gagal -> Dex, tapi tak dikenal TIDAK di-cache 30 menit (bisa dicoba lagi)
+reset(); fxOk(); on(LL, () => json({}, 500)); on(DX, () => json({ pairs: [{ chainId: "bsc", baseToken: { address: T1 }, priceUsd: "3", liquidity: { usd: 100_000 } }] }));
+t = await tokenPrices(56, [T1, T3]);
+ok("token: Llama gagal -> DexScreener mengisi yang dikenal", t[T1]?.usd === 3);
+
+// CoinGecko terakhir, satu per satu
+reset(); on(LL, () => json({}, 500)); on(DX, () => json({}, 500)); on(CGR, (u) => json({ [u.searchParams.get("contract_addresses")!]: { usd: 7, idr: 112000 } }));
+t = await tokenPrices(1, [T1, T2]);
+ok("token: Llama & Dex gagal -> CoinGecko satu alamat per permintaan", hits(CGR) === 2 && t[T1]?.usd === 7 && t[T1]?.idr === 112000);
+
+reset(); on(LL, () => json({ coins: {} })); on(DX, () => json({ pairs: [] }));
+on(CGR, (u) => u.pathname.endsWith("/asset_platforms")
+  ? json([{ id: "custom-evm", chain_identifier: "912345" }])
+  : json({ [T1]: { usd: 8, idr: 128000 } }));
+const customEvm = { chainId: 912345, name: "Custom EVM", symbol: "CST", testnet: false, custom: true, rpcUrls: [], explorer: "" };
+t = await tokenPrices(customEvm.chainId, [T1], customEvm);
+ok("token: custom chain menemukan platform CoinGecko dari chain ID", t[T1]?.usd === 8 && hits(CGR) === 2);
+
+// pemotongan batch
+reset(); fxOk(); const many = Array.from({ length: 85 }, (_, i) => "0x" + i.toString(16).padStart(40, "0"));
+on(LL, () => json({ coins: {} })); on(DX, () => json({ pairs: [] }));
+await tokenPrices(1, many);
+ok("token: 85 alamat -> Llama 3 permintaan (40+40+5), Dex 3 permintaan (30+30+25)", hits(LL) === 3 && hits(DX) === 3);
+ok("token: panjang URL aman (< 4000 karakter)", calls.every((c) => c.length < 4000));
+const cBefore = calls.length;
+ok("token: jaringan tak dikenal -> kosong tanpa permintaan", Object.keys(await tokenPrices(999999, [T1])).length === 0 && calls.length === cBefore);
+
+// jeda per sumber
+reset(); on(LL, () => json({}, 503)); on(DX, () => json({ pairs: null })); fxOk(); on(CGR, () => json({}, 400));
+await tokenPrices(56, [T1]).catch(() => {}); const l1 = hits(LL);
+await tokenPrices(56, [T2]).catch(() => {});
+ok("jeda: setelah Llama gagal, permintaan berikutnya tidak menyentuh Llama selama 2 menit", l1 === 1 && hits(LL) === 1);
+
+globalThis.fetch = realFetchPr;
 }
 
 laneTest().then(() => {

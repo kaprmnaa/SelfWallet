@@ -127,14 +127,14 @@ export function usePortfolio(
 
       if (!testMode) {
         try {
-          const nat = await nativePrices();
+          const nat = await nativePrices(allChains);
           const byChainTok: Record<number, Record<string, Price | null>> = {};
-          // Berurutan (bukan paralel) agar tidak memicu rate limit CoinGecko.
+          // Berurutan (bukan paralel) agar tidak memicu rate limit penyedia harga.
           for (const c of chains) {
             const addrs = rows.filter((r) => r.chain.chainId === c.chainId && r.address).map((r) => r.address!);
             if (addrs.length === 0) continue;
             try {
-              byChainTok[c.chainId] = await tokenPrices(c.chainId, addrs);
+              byChainTok[c.chainId] = await tokenPrices(c.chainId, addrs, c);
             } catch {
               priceError = true;
               byChainTok[c.chainId] = {};

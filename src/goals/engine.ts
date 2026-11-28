@@ -16,7 +16,7 @@ export type GoalLive = { value: number; unpriced: number; at: number } | { error
 
 /**
  * Memantau goal aktif wallet ini: ukur saldo/nilai tiap 30 detik (hanya saat tab terlihat), evaluasi pencapaian,
- * dan catat snapshot untuk grafik perjalanan. Ini polling, bukan streaming: harga CoinGecko di-cache 5 menit.
+ * dan catat snapshot untuk grafik perjalanan. Ini polling, bukan streaming: harga (DefiLlama/Binance/CoinGecko) di-cache 5 menit.
  */
 export function useGoalEngine(account: Account, chains: ChainConfig[], allTokens: Record<string, TokenInfo[]>) {
   const ref = useMemo(() => walletRef(account), [account]);

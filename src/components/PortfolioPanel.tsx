@@ -21,9 +21,9 @@ export default function PortfolioPanel({ pf, testMode, activeChainId }: { pf: Po
 
   return (
     <div className="grid gap-6">
-      {!testMode && pf.priceError && <Notice>Sebagian harga tidak bisa dimuat dari CoinGecko, jadi total bisa kurang dari sebenarnya.</Notice>}
+      {!testMode && pf.priceError && <Notice>Sebagian harga tidak bisa dimuat dari penyedia harga, jadi total bisa kurang dari sebenarnya.</Notice>}
       {!testMode && !pf.priceError && pf.unpriced > 0 && (
-        <Notice tone="info">{pf.unpriced} aset belum punya harga di CoinGecko dan tidak dihitung dalam total.</Notice>
+        <Notice tone="info">{pf.unpriced} aset belum punya harga yang andal (tidak ditemukan, atau likuiditasnya terlalu kecil) dan tidak dihitung dalam total.</Notice>
       )}
 
       {pf.loading ? (

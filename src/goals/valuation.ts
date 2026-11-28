@@ -11,7 +11,7 @@ export type Measure = { value: number; unpriced: number };
 
 /**
  * Nilai aset wallet pada SATU jaringan: koin native + token tersimpan (EVM). Untuk satuan USD memakai harga
- * CoinGecko (cache 5 menit, jadi harga bukan streaming realtime). Gagal-aman: jika saldo atau harga tidak
+ * sumber harga publik (cache 5 menit, jadi harga bukan streaming realtime). Gagal-aman: jika saldo atau harga tidak
  * bisa dimuat, melempar galat (tidak pernah mengembalikan nilai 0 palsu yang merusak grafik/evaluasi).
  */
 export async function measure(
@@ -27,7 +27,7 @@ export async function measure(
   const nativeAmount = parseFloat(rows[0].amount);
   if (unit === "native") return { value: nativeAmount, unpriced: 0 };
 
-  const prices = await nativePrices();
+  const prices = await nativePrices([chain]);
   const np = prices[chain.chainId];
   if (!np) throw new Error("Harga koin native tidak tersedia.");
   let usd = nativeAmount * np.usd;
@@ -35,7 +35,7 @@ export async function measure(
   const toks = rows.filter((r) => r.address);
   if (toks.length > 0) {
     try {
-      const tp = await tokenPrices(chain.chainId, toks.map((t) => t.address!));
+      const tp = await tokenPrices(chain.chainId, toks.map((t) => t.address!), chain);
       for (const t of toks) {
         const p = tp[t.address!.toLowerCase()];
         const amt = parseFloat(t.amount);
@@ -56,7 +56,7 @@ export type Pool = PoolMeta & {
 };
 
 /**
- * Total aset jaringan sebagai "pool" yang dibagi ke goal. Pool USD = native + token berharga (butuh harga CoinGecko);
+ * Total aset jaringan sebagai "pool" yang dibagi ke goal. Pool USD = native + token berharga (butuh harga dari sumber publik);
  * pool native = hanya koin native (tanpa harga). Gagal-aman: melempar galat jika saldo/harga tidak bisa dimuat.
  */
 export async function measurePool(
@@ -72,7 +72,7 @@ export async function measurePool(
   const nativeAmount = parseFloat(rows[0].amount);
   if (currency === "native") return { total: nativeAmount, currency, nativeUsd: null, unpriced: 0, tokenUsd: {} };
 
-  const prices = await nativePrices();
+  const prices = await nativePrices([chain]);
   const np = prices[chain.chainId];
   if (!np) throw new Error("Harga koin native tidak tersedia.");
   let usd = nativeAmount * np.usd;
@@ -81,7 +81,7 @@ export async function measurePool(
   const toks = rows.filter((r) => r.address);
   if (toks.length > 0) {
     try {
-      const tp = await tokenPrices(chain.chainId, toks.map((t) => t.address!));
+      const tp = await tokenPrices(chain.chainId, toks.map((t) => t.address!), chain);
       for (const t of toks) {
         const p = tp[t.address!.toLowerCase()];
         const amt = parseFloat(t.amount);

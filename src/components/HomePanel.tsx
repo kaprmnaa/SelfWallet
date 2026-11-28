@@ -9,6 +9,7 @@ type Props = {
   testMode: boolean;
   /** Teks ringkas total: sudah diformat (null saat tidak berlaku). */
   totalUsd: string | null;
+  /** null = kurs Rupiah tidak tersedia (tidak ditampilkan, tidak dikarang). */
   totalIdr: string | null;
   card: Omit<Parameters<typeof NetworkCard>[0], "actions">;
   actions: CardAction[];
@@ -32,8 +33,7 @@ export default function HomePanel({ pf, testMode, totalUsd, totalIdr, card, acti
             <p className="mt-1 flex flex-wrap items-baseline gap-x-3 text-zinc-50">
               <span className="text-[1.75rem] font-medium tracking-[-0.02em] tabular-nums">{totalUsd}</span>
               <span className="text-sm text-zinc-400 tabular-nums">
-                {totalIdr}
-                {pf.unpriced > 0 ? `, ${pf.unpriced} aset belum berharga` : ""}
+                {[totalIdr, pf.unpriced > 0 ? `${pf.unpriced} aset belum berharga` : null].filter(Boolean).join(", ")}
               </span>
             </p>
           )}

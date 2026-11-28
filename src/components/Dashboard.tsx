@@ -177,7 +177,7 @@ export default function Dashboard({ account }: { account: Account }) {
                   pf={pf}
                   testMode={testMode}
                   totalUsd={fmtUsd(pf.totalUsd)}
-                  totalIdr={fmtIdr(pf.totalIdr)}
+                  totalIdr={pf.totalIdr > 0 ? fmtIdr(pf.totalIdr) : null}
                   activeChainId={chain.chainId}
                   actions={actions}
                   card={{

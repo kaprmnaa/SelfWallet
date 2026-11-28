@@ -95,6 +95,10 @@ atau koin native, termasuk testnet untuk uji coba). Progres, grafik perjalanan, 
 - **Tampilan:** sidebar kaca di layar lebar dan tab bar kaca mengambang di HP (Aset, Kirim, Terima, Riwayat, Menu). Halaman Aset menampilkan total semua jaringan (pendukung) dan kartu jaringan aktif
   (saldo, alamat, aksi Kirim/Terima/Swap) dengan cahaya lembut warna khas jaringan (`src/lib/chainTint.ts`). Detail akun, jaringan, dan keamanan ada di halaman Akun. Komponen cangkang ada di
   `src/components/shell/` dan bersifat presentasi murni (tanpa dependensi data). Catatan teknis: wadah yang berisi popover/modal `position: fixed` tidak boleh memakai `backdrop-filter`.
+- **Harga berlapis (tanpa API key):** koin native: DefiLlama -> Binance (`data-api.binance.vision`) -> CoinGecko. Token: DefiLlama (banyak alamat per permintaan) -> DexScreener -> CoinGecko.
+  Kurs Rupiah dari `open.er-api.com` (cadangan Frankfurter); bila tidak ada, Rupiah tidak ditampilkan (tidak dikarang). Tiap sumber punya jeda sendiri (2 menit setelah gagal), hasil di-cache 5 menit,
+  dan data lama (<= 24 jam) dipakai bila semua sumber gagal. **Perlindungan token spam:** harga DEX hanya diterima jika likuiditas pasangan >= $50.000 dan harga DefiLlama jika confidence >= 0,8;
+  token yang tidak lolos tetap "tanpa harga" supaya total aset dan Goal tidak menyesatkan. Yang dikirim ke penyedia hanya id koin, simbol, dan alamat contract token (bukan alamat dompet Anda).
 - **Riwayat tersinkron (terenkripsi):** setelah masuk (tab Goal), riwayat transaksi tersimpan di Supabase dan terlihat di perangkat mana pun yang membuka wallet
   yang sama. Dienkripsi di perangkat (AES-GCM, kunci diturunkan dari private key): server hanya melihat ciphertext, penanda wallet, chain id, dan waktu.
   Hash, alamat, jumlah, dan status tidak terbaca. Hanya pengiriman yang tercatat (swap belum). Jalankan ulang `supabase/schema.sql` untuk tabel `tx_history`.

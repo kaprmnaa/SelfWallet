@@ -191,7 +191,7 @@ function CreateGoal({ account, chain, chains, engine, goals }: { account: Accoun
   const [err, setErr] = useState("");
 
   const sel = chains.find((c) => c.chainId === chainId) ?? chain;
-  const usdOk = !sel.testnet && hasNativePrice(sel.chainId);
+  const usdOk = hasNativePrice(sel);
   useEffect(() => setUnit(usdOk ? "usd" : "native"), [usdOk, chainId]);
 
   async function submit(e: FormEvent) {
